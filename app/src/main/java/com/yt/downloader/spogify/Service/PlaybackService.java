@@ -11,6 +11,9 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.IBinder;
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -26,7 +29,12 @@ public class PlaybackService extends Service {
     public static final String ACTION_STATE = "com.yt.downloader.action.STATE";
     public static final String ACTION_PLAY = "com.yt.downloader.action.PLAY";
     public static final String ACTION_PAUSE = "com.yt.downloader.action.PAUSE";
+    public static final String ACTION_NEXT = "com.yt.downloader.action.NEXT";
+    public static final String ACTION_SEEK = "com.yt.downloader.action.SEEK";
+
     public static final String EXTRA_IS_PLAYING = "isPlaying";
+    public static final String EXTRA_CURRENT_POSITION = "currentPosition";
+    public static final String EXTRA_DURATION = "duration";
 
     private static final String CHANNEL_ID = "yt_playback";
     private static final int NOTIF_ID = 101;
@@ -37,17 +45,66 @@ public class PlaybackService extends Service {
     private String musicPic = "";
     private volatile boolean isPlaying = true;
     private volatile boolean started = false;
+    private long currentPositionMs = 0;
+    private long durationMs = 0;
+
+    private MediaSessionCompat mediaSession;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        mediaSession = new MediaSessionCompat(this, "PlaybackService");
+        mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
+                | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+
+        mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            @Override
+            public void onPlay() {
+                sendBroadcast(new Intent(ACTION_PLAY).setPackage(getPackageName()));
+            }
+
+            @Override
+            public void onPause() {
+                sendBroadcast(new Intent(ACTION_PAUSE).setPackage(getPackageName()));
+            }
+
+            @Override
+            public void onSkipToNext() {
+                sendBroadcast(new Intent(ACTION_NEXT).setPackage(getPackageName()));
+            }
+
+            @Override
+            public void onSeekTo(long pos) {
+                Intent intent = new Intent(ACTION_SEEK).setPackage(getPackageName());
+                intent.putExtra(EXTRA_CURRENT_POSITION, pos);
+                sendBroadcast(intent);
+            }
+        });
+
+        mediaSession.setActive(true);
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent != null ? intent.getAction() : null;
+
         if (ACTION_STATE.equals(action)) {
             if (!started) {
                 stopSelf();
                 return START_NOT_STICKY;
             }
-            isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, true);
-            updateNotification();
+            if (intent != null) {
+                isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, true);
+                currentPositionMs = intent.getLongExtra(EXTRA_CURRENT_POSITION, currentPositionMs);
+                long newDurationMs = intent.getLongExtra(EXTRA_DURATION, durationMs);
+
+                // Update metadata if duration value changes or becomes available
+                if (newDurationMs > 0 && newDurationMs != durationMs) {
+                    durationMs = newDurationMs;
+                    updateMediaSessionMetadata();
+                }
+            }
+            updateMediaSessionState();
             return START_NOT_STICKY;
         }
 
@@ -58,9 +115,14 @@ public class PlaybackService extends Service {
             title = (t == null || t.isEmpty()) ? "Playing" : t;
             videoId = v == null ? "" : v;
             musicPic = p == null ? "" : p;
+            currentPositionMs = 0;
+            durationMs = 0;
         }
+
         started = true;
         createChannel();
+        updateMediaSessionMetadata();
+        updateMediaSessionState();
 
         Notification n = buildNotification();
         if (Build.VERSION.SDK_INT >= 29) {
@@ -73,8 +135,35 @@ public class PlaybackService extends Service {
         return START_NOT_STICKY;
     }
 
+    private void updateMediaSessionMetadata() {
+        if (mediaSession == null) return;
+        MediaMetadataCompat.Builder builder = new MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Spogify")
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
+
+        if (thumbnail != null) {
+            builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, thumbnail);
+        }
+        mediaSession.setMetadata(builder.build());
+    }
+
+    private void updateMediaSessionState() {
+        if (mediaSession == null) return;
+        int state = isPlaying ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
+        PlaybackStateCompat playbackState = new PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY
+                        | PlaybackStateCompat.ACTION_PAUSE
+                        | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                        | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                        | PlaybackStateCompat.ACTION_SEEK_TO)
+                .setState(state, currentPositionMs, isPlaying ? 1.0f : 0.0f)
+                .build();
+
+        mediaSession.setPlaybackState(playbackState);
+    }
+
     private Notification buildNotification() {
-        // Tap the notification -> back to the video screen
         Intent open = new Intent(this, VideoWatchActivity.class)
                 .putExtra("videoId", videoId)
                 .putExtra("title", title)
@@ -83,27 +172,33 @@ public class PlaybackService extends Service {
         PendingIntent contentPi = PendingIntent.getActivity(
                 this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
-        // Play / Pause button -> broadcast received by the activity
         String toggleAction = isPlaying ? ACTION_PAUSE : ACTION_PLAY;
         Intent toggle = new Intent(toggleAction).setPackage(getPackageName());
         PendingIntent togglePi = PendingIntent.getBroadcast(
                 this, 1, toggle, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
+        Intent next = new Intent(ACTION_NEXT).setPackage(getPackageName());
+        PendingIntent nextPi = PendingIntent.getBroadcast(
+                this, 2, next, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play) // use your own icon
+                .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(title)
-                .setContentText(isPlaying ? "Playing" : "Paused")
+                .setContentText("Spogify")
                 .setLargeIcon(thumbnail)
                 .setContentIntent(contentPi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .addAction(
                         isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
                         isPlaying ? "Pause" : "Play",
                         togglePi)
+                .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
                 .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                        .setShowActionsInCompactView(0))
+                        .setMediaSession(mediaSession.getSessionToken())
+                        .setShowActionsInCompactView(0, 1))
                 .build();
     }
 
@@ -128,6 +223,7 @@ public class PlaybackService extends Service {
                     Bitmap bmp = BitmapFactory.decodeStream(in);
                     if (bmp != null && started) {
                         thumbnail = bmp;
+                        updateMediaSessionMetadata();
                         updateNotification();
                     }
                 }
@@ -139,7 +235,6 @@ public class PlaybackService extends Service {
         }).start();
     }
 
-
     private int immutableFlag() {
         return Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0;
     }
@@ -148,6 +243,8 @@ public class PlaybackService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel ch = new NotificationChannel(
                     CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW);
+            ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            ch.setShowBadge(false);
             getSystemService(NotificationManager.class).createNotificationChannel(ch);
         }
     }
@@ -156,6 +253,10 @@ public class PlaybackService extends Service {
     public void onDestroy() {
         started = false;
         thumbnail = null;
+        if (mediaSession != null) {
+            mediaSession.setActive(false);
+            mediaSession.release();
+        }
         super.onDestroy();
     }
 

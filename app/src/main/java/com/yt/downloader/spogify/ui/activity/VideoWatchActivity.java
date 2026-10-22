@@ -64,20 +64,29 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
     private final java.util.Random random = new java.util.Random();
     private String currentVideoId = "";
     private boolean shuffleEnabled = true;
-    // NEW: receives Play/Pause taps from the notification
+
+    private float currentSecond = 0f;
+    private float totalDurationSec = 0f;
+    private long lastStateSyncTime = 0;
+
     private final BroadcastReceiver controlReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (player == null || intent == null || intent.getAction() == null) return;
-            if (PlaybackService.ACTION_PLAY.equals(intent.getAction())) {
+            String action = intent.getAction();
+            if (PlaybackService.ACTION_PLAY.equals(action)) {
                 player.play();
-            } else if (PlaybackService.ACTION_PAUSE.equals(intent.getAction())) {
+            } else if (PlaybackService.ACTION_PAUSE.equals(action)) {
                 player.pause();
+            } else if (PlaybackService.ACTION_NEXT.equals(action)) {
+                playRandomNext();
+            } else if (PlaybackService.ACTION_SEEK.equals(action)) {
+                long posMs = intent.getLongExtra(PlaybackService.EXTRA_CURRENT_POSITION, 0);
+                player.seekTo(posMs / 1000f);
             }
         }
     };
 
-    // NEW: notification permission (Android 13+)
     private final ActivityResultLauncher<String> notificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
         if (!granted) {
             Toast.makeText(this, "Enable notifications to control background playback", Toast.LENGTH_LONG).show();
@@ -106,9 +115,12 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         musicListPresenter = new MusicListPresenter(this);
         recentSearch = SPUtils.getInstance().getString(AppConstant.recentSearch);
         musicListPresenter.getSearchListQuery(TextUtils.isEmpty(recentSearch) ? "" : recentSearch);
+
         IntentFilter filter = new IntentFilter();
         filter.addAction(PlaybackService.ACTION_PLAY);
         filter.addAction(PlaybackService.ACTION_PAUSE);
+        filter.addAction(PlaybackService.ACTION_NEXT);
+        filter.addAction(PlaybackService.ACTION_SEEK);
         ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
 
@@ -119,8 +131,24 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         youTubePlayerView.initialize(new AbstractYouTubePlayerListener() {
             @Override
             public void onReady(@NonNull YouTubePlayer youTubePlayer) {
-                player = youTubePlayer;                 // NEW
-                startPlayer(videoId,title,tumbnail);
+                player = youTubePlayer;
+                startPlayer(videoId, title, tumbnail);
+            }
+
+            @Override
+            public void onCurrentSecond(@NonNull YouTubePlayer youTubePlayer, float second) {
+                currentSecond = second;
+                long now = System.currentTimeMillis();
+                if (now - lastStateSyncTime >= 1000) { // Sync duration & position every 1 second
+                    lastStateSyncTime = now;
+                    sendState(true);
+                }
+            }
+
+            @Override
+            public void onVideoDuration(@NonNull YouTubePlayer youTubePlayer, float duration) {
+                totalDurationSec = duration;
+                sendState(true); // Sync duration immediately when duration loads
             }
 
             @Override
@@ -152,6 +180,7 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
                 showFull(false, myfullview);
             }
         });
+
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -163,12 +192,8 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
                 }
             }
         });
-        binding.swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
-            @Override
-            public void onRefresh() {
-                refreshData();
-            }
-        });
+
+        binding.swipeRefresh.setOnRefreshListener(this::refreshData);
     }
 
     private void playRandomNext() {
@@ -188,29 +213,29 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
 
         startPlayer(next.getId(), next.getTitle(), next.getThumbnail());
     }
+
     private void initRecycler() {
         binding.rvMusicList.setLayoutManager(new LinearLayoutManager(this));
         musicListAdapter = new MusicListAdapter();
         binding.rvMusicList.setAdapter(musicListAdapter);
         musicListAdapter.setEmptyView(R.layout.layout_empty_music, binding.rvMusicList);
-        musicListAdapter.setOnItemClickListener(new BaseQuickAdapter.OnItemClickListener() {
-            @Override
-            public void onItemClick(BaseQuickAdapter adapter, View view, int position) {
-                String videoId = musicListAdapter.getData().get(position).getId();
-                String title = musicListAdapter.getData().get(position).getTitle();
-                String tumbnail = musicListAdapter.getData().get(position).getThumbnail();
+        musicListAdapter.setOnItemClickListener((adapter, view, position) -> {
+            String vId = musicListAdapter.getData().get(position).getId();
+            String vTitle = musicListAdapter.getData().get(position).getTitle();
+            String vThumb = musicListAdapter.getData().get(position).getThumbnail();
 
-                if (TextUtils.isEmpty(videoId) && TextUtils.isEmpty(title) && TextUtils.isEmpty(tumbnail)) {
-                    return;
-                }
-                startPlayer(videoId,title,tumbnail);
-
+            if (TextUtils.isEmpty(vId) && TextUtils.isEmpty(vTitle) && TextUtils.isEmpty(vThumb)) {
+                return;
             }
+            startPlayer(vId, vTitle, vThumb);
         });
     }
 
-    private void startPlayer(String videoId,String title, String tumbnail){
+    private void startPlayer(String videoId, String title, String tumbnail) {
         currentVideoId = videoId;
+        currentSecond = 0f;
+        totalDurationSec = 0f;
+
         if (player != null) {
             player.loadVideo(videoId, 0);
         }
@@ -229,6 +254,8 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
             Intent i = new Intent(this, PlaybackService.class);
             i.setAction(PlaybackService.ACTION_STATE);
             i.putExtra(PlaybackService.EXTRA_IS_PLAYING, playing);
+            i.putExtra(PlaybackService.EXTRA_CURRENT_POSITION, (long) (currentSecond * 1000));
+            i.putExtra(PlaybackService.EXTRA_DURATION, (long) (totalDurationSec * 1000));
             startService(i);
         } catch (IllegalStateException ignored) {
         }
@@ -276,7 +303,6 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         musicListPresenter.getSearchListQuery(recentSearch);
     }
 
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -298,23 +324,15 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
 
     @Override
     public void showError(String error) {
-        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                Toast.makeText(getApplicationContext(), "Error fetching data: " + error, Toast.LENGTH_SHORT).show();
-                binding.swipeRefresh.setRefreshing(false);
-            }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Toast.makeText(getApplicationContext(), "Error fetching data: " + error, Toast.LENGTH_SHORT).show();
+            binding.swipeRefresh.setRefreshing(false);
         }, 500);
     }
 
     @Override
     public void hideLoading() {
-        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                binding.swipeRefresh.setRefreshing(false);
-            }
-        }, 500);
+        new Handler(Looper.getMainLooper()).postDelayed(() -> binding.swipeRefresh.setRefreshing(false), 500);
     }
 
     @SuppressWarnings("deprecation")
@@ -331,6 +349,5 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
             itemsBeans.addAll(youtubeSearchBean.getItems());
             musicListAdapter.setNewData(itemsBeans);
         }
-
     }
 }
