@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.yt.downloader'
+    namespace 'com.yt.downloader.spofigy'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.yt.downloader"
+        applicationId "com.yt.downloader.spofigy"
         minSdk 24
         targetSdk 35
         versionCode 1
@@ -21,16 +21,41 @@ android {
         viewBinding true
     }
 
+    signingConfigs {
+        debug {
+            storeFile file("./spogify.jks")
+            storePassword "123456"
+            keyAlias "spogify"
+            keyPassword "123456"
+        }
+        release {
+            storeFile file("./spogify.jks")
+            storePassword "123456"
+            keyAlias "spogify"
+            keyPassword "123456"
+        }
+    }
+
+
     buildTypes {
         release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+
+
 }
 
 dependencies {
