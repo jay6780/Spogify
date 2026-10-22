@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.yt.downloader.spofigy'
+    namespace 'com.yt.downloader'
     compileSdk 35
 
     defaultConfig {
@@ -22,12 +22,6 @@ android {
     }
 
     signingConfigs {
-        debug {
-            storeFile file("./spogify.jks")
-            storePassword "123456"
-            keyAlias "spogify"
-            keyPassword "123456"
-        }
         release {
             storeFile file("./spogify.jks")
             storePassword "123456"
@@ -36,7 +30,6 @@ android {
         }
     }
 
-
     buildTypes {
         release {
             signingConfig signingConfigs.release
@@ -44,7 +37,6 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
