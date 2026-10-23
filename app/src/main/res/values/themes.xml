@@ -10,4 +10,7 @@
     </style>
 
     <style name="Theme.Downloader" parent="Base.Theme.Downloader" />
+    <style name="RoundedCornerImage">
+        <item name="cornerSize">8dp</item>
+    </style>
 </resources>

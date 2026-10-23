@@ -1,5 +1,9 @@
 package com.yt.downloader.spogify.mvp.api;
 
+import com.yt.downloader.spogify.mvp.bean.OpmBean;
+import com.yt.downloader.spogify.mvp.bean.RAndBbean;
+import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
+import com.yt.downloader.spogify.mvp.bean.TopTrackBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
 
 import io.reactivex.rxjava3.core.Observable;
@@ -9,4 +13,34 @@ import retrofit2.http.Query;
 public interface YoutubeApi {
     @GET("mp3juice/api")
     Observable<YoutubeSearchBean> getSearchList(@Query("search") String search);
+
+    @GET(".")
+    Observable<TopArtistBean> getTopArtists(
+            @Query("method") String method,
+            @Query("api_key") String apiKey,
+            @Query("format") String format
+    );
+
+    @GET(".")
+    Observable<TopTrackBean> getTopTracks(
+            @Query("method") String method,
+            @Query("api_key") String apiKey,
+            @Query("format") String format
+    );
+
+    @GET(".")
+    Observable<OpmBean> getOpm(
+            @Query("method") String method,
+            @Query("tag") String tag,
+            @Query("api_key") String apiKey,
+            @Query("format") String format
+    );
+
+    @GET(".")
+    Observable<RAndBbean> getRnB(
+            @Query("method") String method,
+            @Query("tag") String tag,
+            @Query("api_key") String apiKey,
+            @Query("format") String format
+    );
 }

@@ -24,7 +24,6 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants;
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer;
@@ -32,12 +31,11 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.Abs
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.FullscreenListener;
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions;
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView;
-import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.R;
 import com.yt.downloader.spogify.Retrofit.AppConstant;
 import com.yt.downloader.spogify.Service.PlaybackService;
 import com.yt.downloader.spogify.SharedPreference.SPUtils;
-import com.yt.downloader.spogify.adapter.MusicListAdapter;
+import com.yt.downloader.spogify.ui.adapter.MusicListAdapter;
 import com.yt.downloader.databinding.ActivityVideoWatchBinding;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
 import com.yt.downloader.spogify.mvp.contract.MusicListContract;

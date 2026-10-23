@@ -1,130 +1,114 @@
 package com.yt.downloader.spogify.ui.fragment;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-import android.os.Handler;
-import android.os.Looper;
-import android.text.TextUtils;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.Toast;
-
-import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.R;
-import com.yt.downloader.spogify.Retrofit.AppConstant;
-import com.yt.downloader.spogify.SharedPreference.SPUtils;
-import com.yt.downloader.spogify.adapter.MusicListAdapter;
 import com.yt.downloader.databinding.FragmentHomeBinding;
-import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
-import com.yt.downloader.spogify.mvp.contract.MusicListContract;
-import com.yt.downloader.spogify.mvp.presenter.MusicListPresenter;
-import com.yt.downloader.spogify.ui.activity.VideoWatchActivity;
+import com.yt.downloader.spogify.Retrofit.AppConstant;
+import com.yt.downloader.spogify.mvp.bean.OpmBean;
+import com.yt.downloader.spogify.mvp.bean.RAndBbean;
+import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
+import com.yt.downloader.spogify.mvp.bean.TopTrackBean;
+import com.yt.downloader.spogify.mvp.contract.HomeContract;
+import com.yt.downloader.spogify.mvp.presenter.HomePresenter;
+import com.yt.downloader.spogify.ui.adapter.OpmAdapter;
+import com.yt.downloader.spogify.ui.adapter.RnBAdapter;
+import com.yt.downloader.spogify.ui.adapter.TopArtistAdapter;
+import com.yt.downloader.spogify.ui.adapter.TopTrackAdapter;
 
 import java.util.ArrayList;
 import java.util.List;
 
+public class HomeFragment extends Fragment implements HomeContract.View {
 
-public class HomeFragment extends Fragment implements View.OnClickListener, MusicListContract.View {
     private FragmentHomeBinding binding;
-    private MusicListAdapter musicListAdapter;
-    private MusicListPresenter musicListPresenter;
-    private List<YoutubeSearchBean.ItemsBean> itemsBeans = new ArrayList<>();
+    private HomePresenter homePresenter;
+    private TopArtistAdapter topArtistAdapter;
+    private TopTrackAdapter topTrackAdapter;
+    private OpmAdapter opmAdapter;
+    private RnBAdapter rnBAdapter;
+    private List<TopArtistBean.ArtistsBean.ArtistBean> topArtistList = new ArrayList<>();
+    private List<TopTrackBean.Track> topTrackList = new ArrayList<>();
+    private List<OpmBean.Artist> opmList = new ArrayList<>();
+    private List<RAndBbean.Artist> RnbList = new ArrayList<>();
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         binding = FragmentHomeBinding.inflate(inflater, container, false);
-        binding.ivBtnSearch.setOnClickListener(this);
-        initRecycler();
-        musicListPresenter = new MusicListPresenter(this);
+        return binding.getRoot();
+    }
 
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
 
+        setupRecyclerView();
+        homePresenter = new HomePresenter(this);
+        initApi();
         binding.swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {
                 refreshData();
             }
         });
-
-        return binding.getRoot();
     }
 
-    private void initRecycler() {
-        binding.rvMusicList.setLayoutManager(new LinearLayoutManager(getContext()));
-        musicListAdapter = new MusicListAdapter();
-        binding.rvMusicList.setAdapter(musicListAdapter);
-        musicListAdapter.setEmptyView(R.layout.layout_empty_music, binding.rvMusicList);
-        musicListAdapter.setOnItemClickListener(new BaseQuickAdapter.OnItemClickListener() {
-            @Override
-            public void onItemClick(BaseQuickAdapter adapter, View view, int position) {
-                String videoId = musicListAdapter.getData().get(position).getId();
-                String title = musicListAdapter.getData().get(position).getTitle();
-                String thumbnail = musicListAdapter.getData().get(position).getThumbnail();
-                startActivity(new Intent(getContext(), VideoWatchActivity.class)
-                        .putExtra("videoId", videoId)
-                        .putExtra("title", title)
-                        .putExtra("tumbnail",thumbnail));
-            }
-        });
-    }
-
-    @Override
-    public void onClick(View v) {
-        if (v.getId() == R.id.iv_btn_search) {
-            hideKeyboard(getActivity());
-            refreshData();
-        }
-
+    private void initApi() {
+        homePresenter.getTopTrackQuery(AppConstant.TopTracks, AppConstant.Api_Key, "json");
+        homePresenter.getTopArtistQuery(AppConstant.TopArtist, AppConstant.Api_Key, "json");
+        homePresenter.getOpmQuery(AppConstant.OPM, "opm", AppConstant.Api_Key, "json");
+        homePresenter.getRnBQuery(AppConstant.RNB, "rnb", AppConstant.Api_Key, "json");
     }
 
     private void refreshData() {
-
-        String musicQuery = binding.etSearch.getText().toString().trim();
-        if (TextUtils.isEmpty(musicQuery)) {
-            binding.swipeRefresh.setRefreshing(false);
-            return;
-        }
-
-        if (TextUtils.isEmpty(musicQuery)) {
-            Toast.makeText(getContext(), "Please enter music name", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (!isNetworkAvailable()) {
-            if (binding.swipeRefresh.isRefreshing()) {
-                binding.swipeRefresh.setRefreshing(false);
+        try {
+            if (!isNetworkAvailable()) {
+                if (binding.swipeRefresh.isRefreshing()) {
+                    binding.swipeRefresh.setRefreshing(false);
+                }
+                Toast.makeText(getContext(), "Please check network and try again", Toast.LENGTH_SHORT).show();
+                return;
             }
-            Toast.makeText(getContext(), "Please check network and try again", Toast.LENGTH_SHORT).show();
-            return;
-        }
+            topArtistList.clear();
+            topTrackList.clear();
+            opmList.clear();
+            RnbList.clear();
+            topArtistAdapter.setNewData(topArtistList);
+            topTrackAdapter.setNewData(topTrackList);
+            opmAdapter.setNewData(opmList);
+            rnBAdapter.setNewData(RnbList);
 
-        SPUtils.getInstance().put(AppConstant.recentSearch,musicQuery);
-        if (!itemsBeans.isEmpty()) {
-            itemsBeans.clear();
-            musicListAdapter.setNewData(itemsBeans);
+            binding.rvTopArtists.scrollToPosition(0);
+            binding.rvTopTracks.scrollToPosition(0);
+            binding.rvOpm.scrollToPosition(0);
+            binding.rvRnb.scrollToPosition(0);
+            binding.llTopTracks.setVisibility(View.GONE);
+            binding.llTopArtist.setVisibility(View.GONE);
+            binding.llOpm.setVisibility(View.GONE);
+            binding.llRnb.setVisibility(View.GONE);
+
+            initApi();
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        musicListPresenter.getSearchListQuery(musicQuery);
     }
-
-    private static void hideKeyboard(Activity activity) {
-        InputMethodManager imm = (InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE);
-        View view = activity.getCurrentFocus();
-        if (view == null) {
-            view = new View(activity);
-        }
-        imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
-    }
-
 
     @SuppressWarnings("deprecation")
     @SuppressLint("MissingPermission")
@@ -132,6 +116,25 @@ public class HomeFragment extends Fragment implements View.OnClickListener, Musi
         ConnectivityManager connectivityManager = (ConnectivityManager) getActivity().getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo activeNetworkInfo = connectivityManager != null ? connectivityManager.getActiveNetworkInfo() : null;
         return activeNetworkInfo != null && activeNetworkInfo.isConnected();
+    }
+
+    private void setupRecyclerView() {
+        topArtistAdapter = new TopArtistAdapter();
+        topTrackAdapter = new TopTrackAdapter();
+        opmAdapter = new OpmAdapter();
+        rnBAdapter = new RnBAdapter();
+
+        binding.rvTopArtists.setLayoutManager(new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false));
+        binding.rvTopArtists.setAdapter(topArtistAdapter);
+
+        binding.rvTopTracks.setLayoutManager(new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false));
+        binding.rvTopTracks.setAdapter(topTrackAdapter);
+
+        binding.rvOpm.setLayoutManager(new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false));
+        binding.rvOpm.setAdapter(opmAdapter);
+
+        binding.rvRnb.setLayoutManager(new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false));
+        binding.rvRnb.setAdapter(rnBAdapter);
     }
 
     @Override
@@ -160,12 +163,54 @@ public class HomeFragment extends Fragment implements View.OnClickListener, Musi
         }, 500);
     }
 
-    @Override
-    public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
-        if (youtubeSearchBean != null && !youtubeSearchBean.getItems().isEmpty()) {
-            itemsBeans.addAll(youtubeSearchBean.getItems());
-            musicListAdapter.setNewData(itemsBeans);
-        }
 
+    @Override
+    public void getTopArtistSuccess(TopArtistBean bean) {
+        if (bean != null && bean.getArtists() != null && !bean.getArtists().getArtist().isEmpty()) {
+            topArtistList.addAll(bean.getArtists().getArtist());
+            topArtistAdapter.setNewData(topArtistList);
+            binding.llTopArtist.setVisibility(View.VISIBLE);
+        } else {
+            binding.llTopArtist.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void getTopTracksSuccess(TopTrackBean topTrackBean) {
+        if (topTrackBean != null && topTrackBean.getTracks() != null && !topTrackBean.getTracks().getTrack().isEmpty()) {
+            topTrackList.addAll(topTrackBean.getTracks().getTrack());
+            topTrackAdapter.setNewData(topTrackList);
+            binding.llTopTracks.setVisibility(View.VISIBLE);
+        } else {
+            binding.llTopTracks.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void getOpmSuccess(OpmBean opmBean) {
+        if (opmBean != null && opmBean.getTopArtists() != null && !opmBean.getTopArtists().getArtist().isEmpty()) {
+            opmList.addAll(opmBean.getTopArtists().getArtist());
+            opmAdapter.setNewData(opmList);
+            binding.llOpm.setVisibility(View.VISIBLE);
+        } else {
+            binding.llOpm.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void getRnBSuccess(RAndBbean rAndBbean) {
+        if (rAndBbean != null && rAndBbean.getTopArtists() != null && !rAndBbean.getTopArtists().getArtist().isEmpty()) {
+            RnbList.addAll(rAndBbean.getTopArtists().getArtist());
+            rnBAdapter.setNewData(RnbList);
+            binding.llRnb.setVisibility(View.VISIBLE);
+        } else {
+            binding.llRnb.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        binding = null;
     }
 }

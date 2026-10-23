@@ -1,4 +1,4 @@
-package com.yt.downloader.spogify.adapter;
+package com.yt.downloader.spogify.ui.adapter;
 
 
 import android.widget.ImageView;
