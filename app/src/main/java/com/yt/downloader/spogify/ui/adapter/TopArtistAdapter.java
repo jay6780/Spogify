@@ -1,6 +1,9 @@
 package com.yt.downloader.spogify.ui.adapter;
 
+import android.content.Intent;
+import android.view.View;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
@@ -11,6 +14,7 @@ import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.spogify.base.BaseViewHolder;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
 import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
+import com.yt.downloader.spogify.ui.activity.TrackInfoActivity;
 
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -34,6 +38,7 @@ public class TopArtistAdapter extends BaseQuickAdapter<TopArtistBean.ArtistsBean
         TextView tvArtistName = helper.getView(R.id.tvArtistName);
         TextView tvPlayCount = helper.getView(R.id.tvPlayCount);
         ImageView ivArtistImage = helper.getView(R.id.ivArtistImage);
+        LinearLayout ll_artist = helper.getView(R.id.ll_artist);
 
         tvCategory.setText("Artist");
         tvArtistName.setText(item.getName());
@@ -58,6 +63,15 @@ public class TopArtistAdapter extends BaseQuickAdapter<TopArtistBean.ArtistsBean
 
             fetchDeezerImage(artistName, ivArtistImage);
         }
+
+        helper.itemView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mContext.startActivity(new Intent(mContext, TrackInfoActivity.class)
+                        .putExtra("ArtistName",item.getName()));
+            }
+        });
+
     }
 
     private void fetchDeezerImage(String artistName, ImageView imageView) {

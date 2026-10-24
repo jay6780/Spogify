@@ -4,6 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="160dp"
     android:layout_height="wrap_content"
+    android:id="@+id/ll_artist"
     android:layout_marginEnd="12dp"
     android:orientation="vertical">
 

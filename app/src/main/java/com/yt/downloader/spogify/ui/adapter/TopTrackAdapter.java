@@ -1,5 +1,7 @@
 package com.yt.downloader.spogify.ui.adapter;
 
+import android.content.Intent;
+import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -12,6 +14,7 @@ import com.yt.downloader.spogify.base.BaseViewHolder;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
 import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
 import com.yt.downloader.spogify.mvp.bean.TopTrackBean;
+import com.yt.downloader.spogify.ui.activity.TrackInfoActivity;
 
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -59,6 +62,14 @@ public class TopTrackAdapter extends BaseQuickAdapter<TopTrackBean.Track, BaseVi
 
             fetchDeezerImage(artistName, ivArtistImage);
         }
+
+        helper.itemView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mContext.startActivity(new Intent(mContext, TrackInfoActivity.class)
+                        .putExtra("ArtistName",item.getName()));
+            }
+        });
     }
 
     private void fetchDeezerImage(String artistName, ImageView imageView) {

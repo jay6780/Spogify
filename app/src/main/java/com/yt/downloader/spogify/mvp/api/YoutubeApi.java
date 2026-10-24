@@ -4,6 +4,7 @@ import com.yt.downloader.spogify.mvp.bean.OpmBean;
 import com.yt.downloader.spogify.mvp.bean.RAndBbean;
 import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
 import com.yt.downloader.spogify.mvp.bean.TopTrackBean;
+import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
 
 import io.reactivex.rxjava3.core.Observable;
@@ -40,6 +41,14 @@ public interface YoutubeApi {
     Observable<RAndBbean> getRnB(
             @Query("method") String method,
             @Query("tag") String tag,
+            @Query("api_key") String apiKey,
+            @Query("format") String format
+    );
+
+    @GET(".")
+    Observable<TrackInfoBean> getPlayTrackInfo(
+            @Query("method") String method,
+            @Query("artist") String artist,
             @Query("api_key") String apiKey,
             @Query("format") String format
     );
