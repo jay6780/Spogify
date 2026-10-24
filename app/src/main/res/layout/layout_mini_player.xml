@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rl_mini_player"
     android:layout_width="match_parent"
-    android:layout_height="75dp"
+    android:layout_height="85dp"
     android:layout_margin="8dp"
     android:background="@drawable/bg_mini_player"
     android:elevation="8dp"
@@ -21,6 +21,14 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             app:enableAutomaticInitialization="false" />
+
+        <ImageView
+            android:id="@+id/iv_mini_cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:src="@mipmap/app_logo"
+            android:visibility="gone" />
 
         <View
             android:id="@+id/v_mini_click_overlay"
@@ -73,6 +81,7 @@
         android:id="@+id/mini_progress_bar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
+        android:layout_marginTop="5dp"
         android:layout_height="3dp"
         android:layout_below="@+id/fl_mini_player_container"
         android:max="1000"

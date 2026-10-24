@@ -22,15 +22,17 @@
             android:layout_marginStart="15dp"
             android:layout_toLeftOf="@+id/iv_btn_search"
             android:textCursorDrawable="@drawable/cursor"
-            android:background="@null"/>
-
+            android:background="@null"
+            android:imeOptions="actionSearch"
+            android:inputType="text"/>
         <ImageView
             android:id="@+id/iv_btn_search"
             android:layout_width="25dp"
             android:layout_height="50dp"
             android:layout_marginEnd="15dp"
             android:layout_alignParentEnd="true"
-            android:src="@mipmap/send"/>
+            android:visibility="gone"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"/>
     </RelativeLayout>
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout

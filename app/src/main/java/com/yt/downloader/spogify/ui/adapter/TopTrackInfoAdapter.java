@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -13,6 +14,7 @@ import com.google.gson.Gson;
 import com.yt.downloader.R;
 import com.yt.downloader.spogify.Utils.EqualizerView;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
+import com.yt.downloader.spogify.Utils.fileUtils.FilesExtractor;
 import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.spogify.base.BaseViewHolder;
 import com.yt.downloader.spogify.mvp.bean.DeezerTrackBean;
@@ -29,18 +31,25 @@ import java.util.concurrent.Executors;
 public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, BaseViewHolder> {
 
     public interface OnTrackClickListener {
-        void onTrackClick(TrackInfoBean.Track track, int position);
+        void onTrackClick(TrackInfoBean.Track track, int position, boolean isDownloaded);
     }
 
     public interface OnFavoriteRemovedListener {
         void onFavoriteRemoved();
     }
 
+    public interface OnDownloadClickListener {
+        void onDownloadClick(TrackInfoBean.Track track, int position);
+    }
+
     private OnTrackClickListener listener;
     private OnFavoriteRemovedListener favoriteRemovedListener;
+    private OnDownloadClickListener downloadClickListener;
     private String artistName = "";
     private final Map<String, String> imageCache = new ConcurrentHashMap<>();
+    private final Map<String, Integer> downloadProgressMap = new ConcurrentHashMap<>();
     private FavoriteDatabaseHelper favDbHelper;
+    private FilesExtractor filesExtractor;
 
     private String currentPlayingTrackName = "";
     private boolean isPlaying = false;
@@ -59,6 +68,19 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
 
     public void setOnFavoriteRemovedListener(OnFavoriteRemovedListener listener) {
         this.favoriteRemovedListener = listener;
+    }
+
+    public void setOnDownloadClickListener(OnDownloadClickListener listener) {
+        this.downloadClickListener = listener;
+    }
+
+    public void updateDownloadProgress(String trackName, int progress) {
+        if (progress >= 100) {
+            downloadProgressMap.remove(trackName);
+        } else {
+            downloadProgressMap.put(trackName, progress);
+        }
+        notifyDataSetChanged();
     }
 
     public void setPlayingTrackName(String trackName, boolean playing) {
@@ -80,16 +102,22 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         if (favDbHelper == null) {
             favDbHelper = new FavoriteDatabaseHelper(mContext);
         }
+        if (filesExtractor == null) {
+            filesExtractor = new FilesExtractor(mContext);
+        }
 
         TextView tv_rank = helper.getView(R.id.tv_rank);
         TextView tv_track_title = helper.getView(R.id.tv_track_title);
         TextView tv_play_count = helper.getView(R.id.tv_play_count);
         ImageView iv_track_cover = helper.getView(R.id.iv_track_cover);
         ImageView iv_add_favorite = helper.getView(R.id.iv_add_favorite);
+        ImageView iv_download = helper.getView(R.id.iv_download);
+        ProgressBar pb_download_progress = helper.getView(R.id.pb_download_progress);
         EqualizerView equalizerView = helper.getView(R.id.equalizer_view);
 
         int position = helper.getAdapterPosition();
 
+        boolean isDownloaded = filesExtractor.isFileDownloaded(item.getName());
         boolean isCurrentPlaying = item != null
                 && !TextUtils.isEmpty(item.getName())
                 && item.getName().equalsIgnoreCase(currentPlayingTrackName);
@@ -110,6 +138,15 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
             tv_rank.setVisibility(View.VISIBLE);
             equalizerView.setVisibility(View.GONE);
             equalizerView.setPlaying(false);
+        }
+
+
+        if (isDownloaded) {
+            iv_download.setImageResource(android.R.drawable.stat_sys_download_done);
+            iv_download.setColorFilter(Color.parseColor("#1DB954"));
+        } else {
+            iv_download.setImageResource(android.R.drawable.stat_sys_download);
+            iv_download.setColorFilter(Color.parseColor("#B3B3B3"));
         }
 
         boolean isFavorite = favDbHelper.isTrackFavorite(item.getName());
@@ -135,12 +172,29 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
             }
         });
 
+        iv_download.setOnClickListener(v -> {
+            if (isDownloaded) {
+                Toast.makeText(mContext, "Already downloaded", Toast.LENGTH_SHORT).show();
+            } else if (downloadClickListener != null) {
+                Toast.makeText(mContext, "Downloading: "+item.getName(), Toast.LENGTH_SHORT).show();
+                downloadClickListener.onDownloadClick(item, position);
+            }
+        });
+
+        if (downloadProgressMap.containsKey(item.getName())) {
+            int progress = downloadProgressMap.get(item.getName());
+            pb_download_progress.setVisibility(View.VISIBLE);
+            pb_download_progress.setProgress(progress);
+        } else {
+            pb_download_progress.setVisibility(View.GONE);
+        }
+
         String trackTitle = item.getName();
         iv_track_cover.setTag(trackTitle);
 
         helper.itemView.setOnClickListener(v -> {
             if (listener != null) {
-                listener.onTrackClick(item, position);
+                listener.onTrackClick(item, position, isDownloaded);
             }
         });
 
@@ -169,6 +223,7 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
             imageView.setColorFilter(Color.parseColor("#B3B3B3"));
         }
     }
+
     private void fetchDeezerTrackCover(String trackTitle, ImageView imageView) {
         Executors.newSingleThreadExecutor().execute(() -> {
             try {

@@ -1,90 +1,132 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="60dp"
+    android:layout_height="wrap_content"
     android:background="?attr/selectableItemBackground"
-    android:paddingHorizontal="16dp">
+    android:orientation="vertical">
 
-    <FrameLayout
-        android:id="@+id/fl_rank_container"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:layout_centerVertical="true">
-
-        <TextView
-            android:id="@+id/tv_rank"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="1"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp" />
-
-    </FrameLayout>
-
-    <ImageView
-        android:id="@+id/iv_track_cover"
-        android:layout_width="44dp"
-        android:layout_height="44dp"
-        android:layout_centerVertical="true"
-        android:layout_toEndOf="@id/fl_rank_container"
-        android:scaleType="centerCrop"
-        android:src="@drawable/noimage" />
-
-    <LinearLayout
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="12dp"
-        android:layout_toEndOf="@id/iv_track_cover"
-        android:layout_toStartOf="@id/iv_add_favorite"
-        android:orientation="vertical">
+        android:minHeight="60dp"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp">
+
+        <FrameLayout
+            android:id="@+id/fl_rank_container"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_centerVertical="true">
+
+            <TextView
+                android:id="@+id/tv_rank"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="1"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+        </FrameLayout>
+
+        <ImageView
+            android:id="@+id/iv_track_cover"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_centerVertical="true"
+            android:layout_toEndOf="@id/fl_rank_container"
+            android:scaleType="centerCrop"
+            android:src="@drawable/noimage" />
 
         <LinearLayout
+            android:id="@+id/ll_details"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="12dp"
+            android:layout_toEndOf="@id/iv_track_cover"
+            android:layout_toStartOf="@id/ll_action_buttons"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.yt.downloader.spogify.Utils.EqualizerView
+                    android:id="@+id/equalizer_view"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="6dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tv_track_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Track Title"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tv_play_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#B3B3B3"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/ll_action_buttons"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <com.yt.downloader.spogify.Utils.EqualizerView
-                android:id="@+id/equalizer_view"
-                android:layout_width="14dp"
-                android:layout_height="14dp"
-                android:layout_marginEnd="6dp"
-                android:visibility="gone" />
+            <ImageView
+                android:id="@+id/iv_download"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="2dp"
+                android:src="@android:drawable/stat_sys_download"
+                app:tint="#B3B3B3" />
 
-            <TextView
-                android:id="@+id/tv_track_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:text="Track Title"
-                android:textColor="#FFFFFF"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+            <ImageView
+                android:id="@+id/iv_add_favorite"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="2dp"
+                android:src="@android:drawable/ic_input_add"
+                app:tint="#B3B3B3" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tv_play_count"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="#B3B3B3"
-            android:textSize="12sp" />
-    </LinearLayout>
+        <ProgressBar
+            android:id="@+id/pb_download_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="3dp"
+            android:layout_below="@id/ll_details"
+            android:layout_alignStart="@id/ll_details"
+            android:layout_alignEnd="@id/ll_details"
+            android:layout_marginTop="4dp"
+            android:indeterminate="false"
+            android:max="100"
+            android:progressDrawable="@android:drawable/progress_horizontal"
+            android:progressTint="#1DB954"
+            android:visibility="gone" />
 
+    </RelativeLayout>
 
-    <ImageView
-        android:id="@+id/iv_add_favorite"
-        android:layout_width="28dp"
-        android:layout_height="28dp"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="2dp"
-        android:src="@android:drawable/ic_input_add"
-        app:tint="#B3B3B3" />
-
-</RelativeLayout>
+</LinearLayout>

@@ -35,6 +35,7 @@ import com.yt.downloader.R;
 import com.yt.downloader.spogify.Retrofit.AppConstant;
 import com.yt.downloader.spogify.Service.PlaybackService;
 import com.yt.downloader.spogify.SharedPreference.SPUtils;
+import com.yt.downloader.spogify.mvp.bean.SearchTotalBean;
 import com.yt.downloader.spogify.ui.adapter.MusicListAdapter;
 import com.yt.downloader.databinding.ActivityVideoWatchBinding;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
@@ -56,7 +57,7 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
     private boolean receiverRegistered = false;
     private MusicListAdapter musicListAdapter;
     private MusicListPresenter musicListPresenter;
-    private List<YoutubeSearchBean.ItemsBean> itemsBeans = new ArrayList<>();
+    private List<SearchTotalBean> itemsBeans = new ArrayList<>();
     private String recentSearch = "";
     private Function0<Unit> exitFullscreenCallback;
     private final java.util.Random random = new java.util.Random();
@@ -195,21 +196,21 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
     }
 
     private void playRandomNext() {
-        List<YoutubeSearchBean.ItemsBean> data = musicListAdapter.getData();
+        List<SearchTotalBean> data = musicListAdapter.getData();
         if (data == null || data.isEmpty()) return;
-        YoutubeSearchBean.ItemsBean next = null;
+        SearchTotalBean next = null;
         for (int attempt = 0; attempt < 5; attempt++) {
-            YoutubeSearchBean.ItemsBean candidate = data.get(random.nextInt(data.size()));
+            SearchTotalBean candidate = data.get(random.nextInt(data.size()));
             if (candidate != null
-                    && !TextUtils.isEmpty(candidate.getId())
-                    && !candidate.getId().equals(currentVideoId)) {
+                    && !TextUtils.isEmpty(candidate.getVideoId())
+                    && !candidate.getVideoId().equals(currentVideoId)) {
                 next = candidate;
                 break;
             }
         }
         if (next == null) return;
 
-        startPlayer(next.getId(), next.getTitle(), next.getThumbnail());
+        startPlayer(next.getVideoId(), next.getName(), next.getThumbnail());
     }
 
     private void initRecycler() {
@@ -218,8 +219,8 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         binding.rvMusicList.setAdapter(musicListAdapter);
         musicListAdapter.setEmptyView(R.layout.layout_empty_music, binding.rvMusicList);
         musicListAdapter.setOnItemClickListener((adapter, view, position) -> {
-            String vId = musicListAdapter.getData().get(position).getId();
-            String vTitle = musicListAdapter.getData().get(position).getTitle();
+            String vId = musicListAdapter.getData().get(position).getVideoId();
+            String vTitle = musicListAdapter.getData().get(position).getName();
             String vThumb = musicListAdapter.getData().get(position).getThumbnail();
 
             if (TextUtils.isEmpty(vId) && TextUtils.isEmpty(vTitle) && TextUtils.isEmpty(vThumb)) {
@@ -241,7 +242,9 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         i.setAction(PlaybackService.ACTION_START);
         i.putExtra("videoId", videoId);
         i.putExtra("title", title);
+        i.putExtra("thumbnail", tumbnail);
         i.putExtra("tumbnail", tumbnail);
+        i.putExtra(PlaybackService.EXTRA_TARGET_ACTIVITY, VideoWatchActivity.class.getName());
         ContextCompat.startForegroundService(VideoWatchActivity.this, i);
 
         binding.tvTitle.setText(title);
@@ -258,6 +261,7 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         } catch (IllegalStateException ignored) {
         }
     }
+
 
     private void showFull(boolean isfull, View fullscreenView) {
         if (isfull) {
@@ -344,7 +348,16 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
     @Override
     public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
         if (youtubeSearchBean != null && !youtubeSearchBean.getItems().isEmpty()) {
-            itemsBeans.addAll(youtubeSearchBean.getItems());
+            for(YoutubeSearchBean.ItemsBean itemsBean :youtubeSearchBean.getItems()){
+                SearchTotalBean bean = new SearchTotalBean(
+                        itemsBean.getThumbnail(),
+                        itemsBean.getTitle(),
+                        itemsBean.getDuration(),
+                        itemsBean.getId(),
+                        false
+                );
+                itemsBeans.add(bean);
+            }
             musicListAdapter.setNewData(itemsBeans);
         }
     }

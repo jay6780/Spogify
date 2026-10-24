@@ -2,6 +2,7 @@ package com.yt.downloader.spogify.mvp.model;
 
 import com.yt.downloader.spogify.Retrofit.Callback;
 import com.yt.downloader.spogify.Retrofit.NetworkingUtils;
+import com.yt.downloader.spogify.mvp.bean.Mp3downloadBean;
 import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
@@ -22,6 +23,32 @@ public class TrackInfoModel {
 
                     @Override
                     public void onNext(TrackInfoBean data) {
+                        callback.returnResult(data);
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        callback.returnError(e.getMessage());
+                    }
+
+                    @Override
+                    public void onComplete() {
+                    }
+                });
+    }
+
+    public static void getDownloadQuery(String download,String type, int quality, final Callback<Mp3downloadBean> callback) {
+        NetworkingUtils.getApiService()
+                .getDownloadUrl(download,type,quality)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribeOn(Schedulers.io())
+                .subscribe(new Observer<Mp3downloadBean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+                    }
+
+                    @Override
+                    public void onNext(Mp3downloadBean data) {
                         callback.returnResult(data);
                     }
 

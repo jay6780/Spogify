@@ -18,6 +18,8 @@ import android.support.v4.media.session.PlaybackStateCompat;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
+import com.yt.downloader.R;
+import com.yt.downloader.spogify.ui.activity.TrackInfoActivity;
 import com.yt.downloader.spogify.ui.activity.VideoWatchActivity;
 
 import java.io.InputStream;
@@ -35,14 +37,16 @@ public class PlaybackService extends Service {
     public static final String EXTRA_IS_PLAYING = "isPlaying";
     public static final String EXTRA_CURRENT_POSITION = "currentPosition";
     public static final String EXTRA_DURATION = "duration";
+    public static final String EXTRA_TARGET_ACTIVITY = "targetActivity";
 
     private static final String CHANNEL_ID = "yt_playback";
     private static final int NOTIF_ID = 101;
 
-    private String title = "";
+    private String title = "Spogify";
     private String videoId = "";
     private volatile Bitmap thumbnail;
     private String musicPic = "";
+    private String targetActivityClassName = "";
     private volatile boolean isPlaying = true;
     private volatile boolean started = false;
     private long currentPositionMs = 0;
@@ -86,53 +90,102 @@ public class PlaybackService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // ALWAYS call startForeground FIRST before doing any logic
+        createChannel();
+        if (thumbnail == null) {
+            try {
+                thumbnail = BitmapFactory.decodeResource(getResources(), R.mipmap.app_logo);
+            } catch (Exception ignored) {
+            }
+        }
+
+        Notification initialNotif = buildNotification();
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID, initialNotif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } else {
+                startForeground(NOTIF_ID, initialNotif);
+            }
+        } catch (Exception e) {
+            android.util.Log.e("PlaybackService", "Failed startForeground", e);
+        }
+
         String action = intent != null ? intent.getAction() : null;
 
         if (ACTION_STATE.equals(action)) {
-            if (!started) {
-                stopSelf();
-                return START_NOT_STICKY;
-            }
             if (intent != null) {
-                isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, true);
+                isPlaying = intent.getBooleanExtra(EXTRA_IS_PLAYING, isPlaying);
                 currentPositionMs = intent.getLongExtra(EXTRA_CURRENT_POSITION, currentPositionMs);
                 long newDurationMs = intent.getLongExtra(EXTRA_DURATION, durationMs);
 
-                // Update metadata if duration value changes or becomes available
                 if (newDurationMs > 0 && newDurationMs != durationMs) {
                     durationMs = newDurationMs;
                     updateMediaSessionMetadata();
                 }
             }
             updateMediaSessionState();
+            updateNotification();
             return START_NOT_STICKY;
         }
 
         if (intent != null) {
             String t = intent.getStringExtra("title");
             String v = intent.getStringExtra("videoId");
-            String p = intent.getStringExtra("tumbnail");
-            title = (t == null || t.isEmpty()) ? "Playing" : t;
+            String p = intent.getStringExtra("thumbnail");
+            if (p == null || p.isEmpty()) {
+                p = intent.getStringExtra("tumbnail");
+            }
+
+            String target = intent.getStringExtra(EXTRA_TARGET_ACTIVITY);
+            if (target != null && !target.isEmpty()) {
+                targetActivityClassName = target;
+            }
+
+            title = (t == null || t.isEmpty()) ? "Playing Track" : t;
             videoId = v == null ? "" : v;
             musicPic = p == null ? "" : p;
             currentPositionMs = 0;
             durationMs = 0;
+
+            updateMediaSessionActivity();
         }
 
         started = true;
-        createChannel();
         updateMediaSessionMetadata();
         updateMediaSessionState();
-
-        Notification n = buildNotification();
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
-        } else {
-            startForeground(NOTIF_ID, n);
-        }
+        updateNotification();
 
         loadThumbnail();
         return START_NOT_STICKY;
+    }
+
+    private Class<?> getTargetActivityClass() {
+        if (TrackInfoActivity.class.getName().equals(targetActivityClassName)) {
+            return TrackInfoActivity.class;
+        }
+        return VideoWatchActivity.class;
+    }
+
+    private void updateMediaSessionActivity() {
+        if (mediaSession == null) return;
+
+        Class<?> targetActivity = getTargetActivityClass();
+
+        Intent openIntent = new Intent(this, targetActivity)
+                .putExtra("videoId", videoId)
+                .putExtra("title", title)
+                .putExtra("thumbnail", musicPic)
+                .putExtra("tumbnail", musicPic)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+
+        PendingIntent sessionIntent = PendingIntent.getActivity(
+                this,
+                0,
+                openIntent,
+                PendingIntent.FLAG_CANCEL_CURRENT | immutableFlag()
+        );
+
+        mediaSession.setSessionActivity(sessionIntent);
     }
 
     private void updateMediaSessionMetadata() {
@@ -164,11 +217,15 @@ public class PlaybackService extends Service {
     }
 
     private Notification buildNotification() {
-        Intent open = new Intent(this, VideoWatchActivity.class)
+        Class<?> targetActivity = getTargetActivityClass();
+
+        Intent open = new Intent(this, targetActivity)
                 .putExtra("videoId", videoId)
                 .putExtra("title", title)
+                .putExtra("thumbnail", musicPic)
                 .putExtra("tumbnail", musicPic)
                 .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+
         PendingIntent contentPi = PendingIntent.getActivity(
                 this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
@@ -182,13 +239,14 @@ public class PlaybackService extends Service {
                 this, 2, next, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setSmallIcon(R.mipmap.app_logo)
                 .setContentTitle(title)
                 .setContentText("Spogify")
                 .setLargeIcon(thumbnail)
                 .setContentIntent(contentPi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .addAction(
@@ -221,7 +279,7 @@ public class PlaybackService extends Service {
                 c.setReadTimeout(8000);
                 try (InputStream in = c.getInputStream()) {
                     Bitmap bmp = BitmapFactory.decodeStream(in);
-                    if (bmp != null && started) {
+                    if (bmp != null) {
                         thumbnail = bmp;
                         updateMediaSessionMetadata();
                         updateNotification();
@@ -242,10 +300,13 @@ public class PlaybackService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW);
+                    CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_HIGH);
             ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-            ch.setShowBadge(false);
-            getSystemService(NotificationManager.class).createNotificationChannel(ch);
+            ch.setShowBadge(true);
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) {
+                nm.createNotificationChannel(ch);
+            }
         }
     }
 
