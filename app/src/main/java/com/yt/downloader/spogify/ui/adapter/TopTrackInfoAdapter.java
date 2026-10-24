@@ -1,15 +1,18 @@
 package com.yt.downloader.spogify.ui.adapter;
 
 import android.graphics.Color;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.gson.Gson;
 import com.yt.downloader.R;
 import com.yt.downloader.spogify.Utils.EqualizerView;
+import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.spogify.base.BaseViewHolder;
 import com.yt.downloader.spogify.mvp.bean.DeezerTrackBean;
@@ -29,52 +32,108 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         void onTrackClick(TrackInfoBean.Track track, int position);
     }
 
-    private OnTrackClickListener listener;
-    private final Map<String, String> imageCache = new ConcurrentHashMap<>();
+    public interface OnFavoriteRemovedListener {
+        void onFavoriteRemoved();
+    }
 
-    private int currentPlayingPosition = -1;
+    private OnTrackClickListener listener;
+    private OnFavoriteRemovedListener favoriteRemovedListener;
+    private String artistName = "";
+    private final Map<String, String> imageCache = new ConcurrentHashMap<>();
+    private FavoriteDatabaseHelper favDbHelper;
+
+    private String currentPlayingTrackName = "";
     private boolean isPlaying = false;
 
     public TopTrackInfoAdapter() {
         super(R.layout.item_popular_track);
     }
 
+    public void setArtistName(String artistName) {
+        this.artistName = artistName;
+    }
+
     public void setOnTrackClickListener(OnTrackClickListener listener) {
         this.listener = listener;
     }
 
-    public void setPlayingPosition(int position, boolean playing) {
-        this.currentPlayingPosition = position;
+    public void setOnFavoriteRemovedListener(OnFavoriteRemovedListener listener) {
+        this.favoriteRemovedListener = listener;
+    }
+
+    public void setPlayingTrackName(String trackName, boolean playing) {
+        if (TextUtils.equals(this.currentPlayingTrackName, trackName) && this.isPlaying == playing) {
+            return;
+        }
+        this.currentPlayingTrackName = trackName != null ? trackName : "";
         this.isPlaying = playing;
-        notifyDataSetChanged();
+
+        if (getRecyclerView() != null) {
+            getRecyclerView().post(this::notifyDataSetChanged);
+        } else {
+            notifyDataSetChanged();
+        }
     }
 
     @Override
     protected void convert(BaseViewHolder helper, TrackInfoBean.Track item) {
+        if (favDbHelper == null) {
+            favDbHelper = new FavoriteDatabaseHelper(mContext);
+        }
+
         TextView tv_rank = helper.getView(R.id.tv_rank);
         TextView tv_track_title = helper.getView(R.id.tv_track_title);
         TextView tv_play_count = helper.getView(R.id.tv_play_count);
         ImageView iv_track_cover = helper.getView(R.id.iv_track_cover);
+        ImageView iv_add_favorite = helper.getView(R.id.iv_add_favorite);
         EqualizerView equalizerView = helper.getView(R.id.equalizer_view);
 
         int position = helper.getAdapterPosition();
-        boolean isCurrentItem = (position == currentPlayingPosition);
 
-        tv_rank.setText(item.getAttributes().getRank());
+        boolean isCurrentPlaying = item != null
+                && !TextUtils.isEmpty(item.getName())
+                && item.getName().equalsIgnoreCase(currentPlayingTrackName);
+
+        if (item.getAttributes() != null) {
+            tv_rank.setText(item.getAttributes().getRank());
+        }
         tv_track_title.setText(item.getName());
         tv_play_count.setText(item.getPlaycount());
 
-        if (isCurrentItem) {
+        if (isCurrentPlaying) {
             tv_track_title.setTextColor(Color.parseColor("#1DB954"));
             tv_rank.setVisibility(View.GONE);
             equalizerView.setVisibility(View.VISIBLE);
-            equalizerView.setPlaying(isPlaying);
+            equalizerView.setPlaying(true);
         } else {
             tv_track_title.setTextColor(Color.WHITE);
             tv_rank.setVisibility(View.VISIBLE);
             equalizerView.setVisibility(View.GONE);
             equalizerView.setPlaying(false);
         }
+
+        boolean isFavorite = favDbHelper.isTrackFavorite(item.getName());
+        updateAddButtonIcon(iv_add_favorite, isFavorite);
+
+        iv_add_favorite.setOnClickListener(v -> {
+            boolean currentlyFav = favDbHelper.isTrackFavorite(item.getName());
+            if (currentlyFav) {
+                favDbHelper.removeFavoriteTrack(item.getName());
+                Toast.makeText(mContext, "Removed from Favorites", Toast.LENGTH_SHORT).show();
+                updateAddButtonIcon(iv_add_favorite, false);
+
+                if (favoriteRemovedListener != null) {
+                    favoriteRemovedListener.onFavoriteRemoved();
+                }
+            } else {
+                String imageThumb = !TextUtils.isEmpty(item.getImageUrl()) ? item.getImageUrl() : imageCache.getOrDefault(item.getName(), "");
+                String totalListeners = !TextUtils.isEmpty(item.getListeners()) ? item.getListeners() : item.getPlaycount();
+
+                favDbHelper.addFavoriteTrack(item.getName(), artistName, imageThumb, totalListeners);
+                Toast.makeText(mContext, "Added to Favorites", Toast.LENGTH_SHORT).show();
+                updateAddButtonIcon(iv_add_favorite, true);
+            }
+        });
 
         String trackTitle = item.getName();
         iv_track_cover.setTag(trackTitle);
@@ -85,18 +144,31 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
             }
         });
 
-        if (imageCache.containsKey(trackTitle)) {
-            String cachedUrl = imageCache.get(trackTitle);
-            loadImage(iv_track_cover, cachedUrl);
+        if (item.getImageUrl() != null && item.getImageUrl().contains("i.ytimg.com")) {
+            loadImage(iv_track_cover, item.getImageUrl());
         } else {
-            Glide.with(mContext)
-                    .load(R.mipmap.app_logo)
-                    .into(iv_track_cover);
+            if (imageCache.containsKey(trackTitle)) {
+                String cachedUrl = imageCache.get(trackTitle);
+                loadImage(iv_track_cover, cachedUrl);
+            } else {
+                Glide.with(mContext)
+                        .load(R.mipmap.app_logo)
+                        .into(iv_track_cover);
 
-            fetchDeezerTrackCover(trackTitle, iv_track_cover);
+                fetchDeezerTrackCover(trackTitle, iv_track_cover);
+            }
         }
     }
 
+    private void updateAddButtonIcon(ImageView imageView, boolean isFavorite) {
+        if (isFavorite) {
+            imageView.setImageResource(android.R.drawable.checkbox_on_background);
+            imageView.setImageResource(android.R.drawable.ic_menu_add);
+        } else {
+            imageView.setImageResource(android.R.drawable.ic_input_add);
+            imageView.setColorFilter(Color.parseColor("#B3B3B3"));
+        }
+    }
     private void fetchDeezerTrackCover(String trackTitle, ImageView imageView) {
         Executors.newSingleThreadExecutor().execute(() -> {
             try {
@@ -118,7 +190,6 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
                         DeezerTrackBean.TrackData firstTrack = response.getData().get(0);
                         if (firstTrack.getAlbum() != null) {
                             String imageUrl = firstTrack.getAlbum().getCoverBig();
-
                             if (imageUrl != null) {
                                 imageCache.put(trackTitle, imageUrl);
 

@@ -70,6 +70,7 @@ public class TrackInfoBean {
 
         @SerializedName("@attr")
         private TrackAttr attributes;
+        private String imageUrl;
 
         public String getName() {
             return name;
@@ -141,6 +142,14 @@ public class TrackInfoBean {
 
         public void setAttributes(TrackAttr attributes) {
             this.attributes = attributes;
+        }
+
+        public String getImageUrl() {
+            return imageUrl;
+        }
+
+        public void setImageUrl(String imageUrl) {
+            this.imageUrl = imageUrl;
         }
     }
 

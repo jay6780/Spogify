@@ -27,9 +27,11 @@ import com.yt.downloader.R;
 import com.yt.downloader.databinding.ActivityTrackInfoBinding;
 import com.yt.downloader.spogify.Retrofit.AppConstant;
 import com.yt.downloader.spogify.Service.PlaybackService;
+import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FollowDatabaseHelper;
 import com.yt.downloader.spogify.Utils.WindowUtils;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
+import com.yt.downloader.spogify.mvp.bean.FavoriteTrack;
 import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
 import com.yt.downloader.spogify.mvp.contract.MusicListContract;
@@ -53,6 +55,8 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
 
     private ActivityTrackInfoBinding binding;
     private String artistName;
+    private boolean isFromFavorite = false;
+    private String selectedTrackName = "";
     private String currentArtistImageUrl = "";
     private String totalListenersText = "0 listeners";
 
@@ -61,6 +65,7 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
     private MusicListPresenter musicListPresenter;
     private TopTrackInfoAdapter trackInfoAdapter;
     private FollowDatabaseHelper dbHelper;
+    private FavoriteDatabaseHelper favDbHelper;
 
     private YouTubePlayerView miniYouTubePlayerView;
     private YouTubePlayer miniPlayer;
@@ -105,7 +110,11 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         setContentView(binding.getRoot());
 
         dbHelper = new FollowDatabaseHelper(this);
+        favDbHelper = new FavoriteDatabaseHelper(this);
+
         artistName = getIntent().getStringExtra("ArtistName");
+        isFromFavorite = getIntent().getBooleanExtra("isFromFavorite", false);
+        selectedTrackName = getIntent().getStringExtra("SelectedTrackName");
 
         binding.ivBack.setOnClickListener(this);
         binding.fabPlay.setOnClickListener(this);
@@ -114,11 +123,15 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         }
 
         String name = TextUtils.isEmpty(artistName) ? "" : artistName;
-        binding.tvArtistName.setText(name);
-        binding.tvToolbarTitle.setText(name);
+        if (isFromFavorite) {
+            binding.tvArtistName.setText("Favorites");
+            binding.tvToolbarTitle.setText("Favorites");
+        } else {
+            binding.tvArtistName.setText(name);
+            binding.tvToolbarTitle.setText(name);
+        }
 
         initAppBarLayoutScrollListener();
-        initBigImage();
         initRecycler();
         initMiniPlayer();
         updateFollowButtonUI();
@@ -126,7 +139,16 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
 
-        trackInfoPresenter.getTrackArtistQuery(AppConstant.TopTracksInfo, artistName, AppConstant.Api_Key, "json");
+        if (isFromFavorite) {
+            loadFavoriteTracksOnly();
+        } else {
+            initBigImage(artistName);
+            trackInfoPresenter.getTrackArtistQuery(AppConstant.TopTracksInfo, artistName, AppConstant.Api_Key, "json");
+        }
+
+        binding.tvVerified.setVisibility(isFromFavorite ? View.GONE : View.VISIBLE);
+        binding.btnFollow.setVisibility(isFromFavorite ? View.GONE : View.VISIBLE);
+        binding.ivVerified.setVisibility(isFromFavorite ? View.GONE : View.VISIBLE);
 
         IntentFilter filter = new IntentFilter();
         filter.addAction(PlaybackService.ACTION_PLAY);
@@ -136,6 +158,58 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         filter.addAction(PlaybackService.ACTION_STATE);
         ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
+    }
+
+    private void loadFavoriteTracksOnly() {
+        List<FavoriteTrack> favList = favDbHelper.getAllFavoriteTracks();
+        List<TrackInfoBean.Track> trackList = new ArrayList<>();
+
+        int rank = 1;
+        int targetIndex = 0;
+        String favHeaderImage = "";
+
+        for (int i = 0; i < favList.size(); i++) {
+            FavoriteTrack fav = favList.get(i);
+            TrackInfoBean.Track t = new TrackInfoBean.Track();
+            t.setName(fav.getMusicName());
+            t.setImageUrl(fav.getImageThumb());
+            t.setPlaycount(fav.getTotalListeners());
+
+            TrackInfoBean.TrackAttr attr = new TrackInfoBean.TrackAttr();
+            attr.setRank(String.valueOf(rank++));
+            t.setAttributes(attr);
+
+            trackList.add(t);
+
+            if (!TextUtils.isEmpty(selectedTrackName) && fav.getMusicName().equalsIgnoreCase(selectedTrackName)) {
+                targetIndex = i;
+                favHeaderImage = fav.getImageThumb();
+            }
+        }
+
+        if (TextUtils.isEmpty(favHeaderImage) && !favList.isEmpty()) {
+            favHeaderImage = favList.get(0).getImageThumb();
+        }
+
+        if (!TextUtils.isEmpty(favHeaderImage)) {
+            currentArtistImageUrl = favHeaderImage;
+            loadImage(binding.ivBig, favHeaderImage);
+        }
+
+        currentTrackList = trackList;
+        trackInfoAdapter.setNewData(trackList);
+
+        if (!currentTrackList.isEmpty()) {
+            currentPlayingIndex = targetIndex;
+            TrackInfoBean.Track selectedTrack = currentTrackList.get(currentPlayingIndex);
+
+            updateAdapterTrackState();
+            updateBigHeaderImage(selectedTrack);
+
+            String searchQuery = buildSearchQuery(selectedTrack);
+            showLoading();
+            musicListPresenter.getSearchListQuery(searchQuery);
+        }
     }
 
     private void updateFollowButtonUI() {
@@ -168,16 +242,48 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
 
     private void initRecycler() {
         trackInfoAdapter = new TopTrackInfoAdapter();
+        trackInfoAdapter.setArtistName(artistName);
         binding.rvPopularTracks.setLayoutManager(new LinearLayoutManager(this));
         binding.rvPopularTracks.setAdapter(trackInfoAdapter);
         trackInfoAdapter.setEmptyView(R.layout.layout_empty_music, binding.rvPopularTracks);
 
         trackInfoAdapter.setOnTrackClickListener((track, position) -> {
             currentPlayingIndex = position;
-            String searchQuery = track.getName() + " " + artistName;
+            updateAdapterTrackState();
+
+            updateBigHeaderImage(track);
+
+            String searchQuery = buildSearchQuery(track);
             showLoading();
             musicListPresenter.getSearchListQuery(searchQuery);
         });
+
+        trackInfoAdapter.setOnFavoriteRemovedListener(() -> {
+            if (isFromFavorite) {
+                loadFavoriteTracksOnly();
+            }
+        });
+    }
+
+    /**
+     * Enhanced YouTube search query format for higher matching accuracy.
+     */
+    private String buildSearchQuery(TrackInfoBean.Track track) {
+        if (track == null) return "";
+        String trackName = track.getName();
+
+        if (isFromFavorite) {
+            FavoriteTrack favTrack = favDbHelper.getFavoriteTrackByName(trackName);
+            if (favTrack != null && !TextUtils.isEmpty(favTrack.getArtistName())) {
+                return trackName + " " + favTrack.getArtistName() + " official audio";
+            }
+            return trackName + " official audio";
+        } else {
+            if (!TextUtils.isEmpty(artistName)) {
+                return trackName + " " + artistName + " official audio";
+            }
+            return trackName + " official audio";
+        }
     }
 
     private void initMiniPlayer() {
@@ -245,28 +351,52 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
                 miniPlayer.play();
             }
         });
+    }
 
-        binding.layoutMiniPlayer.vMiniClickOverlay.setOnClickListener(v -> openFullPlayer());
-        binding.layoutMiniPlayer.tvMiniTitle.setOnClickListener(v -> openFullPlayer());
+    private void updateBigHeaderImage(TrackInfoBean.Track track) {
+        if (track == null) return;
+
+        if (isFromFavorite) {
+            FavoriteTrack favTrack = favDbHelper.getFavoriteTrackByName(track.getName());
+            if (favTrack != null && !TextUtils.isEmpty(favTrack.getImageThumb())) {
+                currentArtistImageUrl = favTrack.getImageThumb();
+                loadImage(binding.ivBig, currentArtistImageUrl);
+                return;
+            }
+
+            if (!TextUtils.isEmpty(track.getImageUrl())) {
+                currentArtistImageUrl = track.getImageUrl();
+                loadImage(binding.ivBig, currentArtistImageUrl);
+                return;
+            }
+        }
+
+        String imageUrl = track.getImageUrl();
+        if (!TextUtils.isEmpty(imageUrl) && (imageUrl.startsWith("http") || imageUrl.contains("i.ytimg.com"))) {
+            currentArtistImageUrl = imageUrl;
+            loadImage(binding.ivBig, currentArtistImageUrl);
+        } else {
+            String trackTitle = track.getName();
+            if (imageCache.containsKey(trackTitle)) {
+                currentArtistImageUrl = imageCache.get(trackTitle);
+                loadImage(binding.ivBig, currentArtistImageUrl);
+            } else {
+                fetchDeezerImage(trackTitle, binding.ivBig);
+            }
+        }
     }
 
     private void playNextTrack() {
         if (currentTrackList != null && !currentTrackList.isEmpty()) {
             currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
             TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
-            String searchQuery = nextTrack.getName() + " " + artistName;
+
+            updateAdapterTrackState();
+            updateBigHeaderImage(nextTrack);
+
+            String searchQuery = buildSearchQuery(nextTrack);
             showLoading();
             musicListPresenter.getSearchListQuery(searchQuery);
-        }
-    }
-
-    private void openFullPlayer() {
-        if (!TextUtils.isEmpty(currentPlayingVideoId)) {
-            Intent intent = new Intent(this, VideoWatchActivity.class);
-            intent.putExtra("videoId", currentPlayingVideoId);
-            intent.putExtra("title", currentPlayingTitle);
-            intent.putExtra("tumbnail", currentPlayingThumb);
-            startActivity(intent);
         }
     }
 
@@ -277,7 +407,17 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
 
         binding.layoutMiniPlayer.rlMiniPlayer.setVisibility(View.VISIBLE);
         binding.layoutMiniPlayer.tvMiniTitle.setText(title);
-        binding.layoutMiniPlayer.tvMiniArtist.setText(artistName);
+
+        String displayArtist = artistName;
+        if (isFromFavorite && currentTrackList != null && currentPlayingIndex < currentTrackList.size()) {
+            FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(currentTrackList.get(currentPlayingIndex).getName());
+            if (fav != null && !TextUtils.isEmpty(fav.getArtistName())) {
+                displayArtist = fav.getArtistName();
+            } else {
+                displayArtist = "Favorite Track";
+            }
+        }
+        binding.layoutMiniPlayer.tvMiniArtist.setText(TextUtils.isEmpty(displayArtist) ? "Music" : displayArtist);
 
         if (miniPlayer != null) {
             miniPlayer.loadVideo(videoId, 0);
@@ -286,9 +426,7 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         }
 
         isPlaying = true;
-        if (trackInfoAdapter != null) {
-            trackInfoAdapter.setPlayingPosition(currentPlayingIndex, true);
-        }
+        updateAdapterTrackState();
 
         Intent i = new Intent(this, PlaybackService.class);
         i.setAction(PlaybackService.ACTION_START);
@@ -317,8 +455,17 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
             binding.layoutMiniPlayer.ivMiniPlayPause.setImageResource(android.R.drawable.ic_media_play);
         }
         updateFabPlayPauseIcon();
-        if (trackInfoAdapter != null) {
-            trackInfoAdapter.setPlayingPosition(currentPlayingIndex, isPlaying);
+        updateAdapterTrackState();
+    }
+
+    private void updateAdapterTrackState() {
+        if (trackInfoAdapter != null && currentTrackList != null && !currentTrackList.isEmpty()) {
+            if (currentPlayingIndex >= 0 && currentPlayingIndex < currentTrackList.size()) {
+                TrackInfoBean.Track playingTrack = currentTrackList.get(currentPlayingIndex);
+                if (playingTrack != null) {
+                    trackInfoAdapter.setPlayingTrackName(playingTrack.getName(), isPlaying);
+                }
+            }
         }
     }
 
@@ -369,24 +516,36 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         });
     }
 
-    private void initBigImage() {
-        binding.ivBig.setTag(artistName);
-        if (imageCache.containsKey(artistName)) {
-            currentArtistImageUrl = imageCache.get(artistName);
+    private void initBigImage(String imageOrName) {
+        if (TextUtils.isEmpty(imageOrName)) return;
+
+        binding.ivBig.setTag(imageOrName);
+
+        if (imageOrName.contains("i.ytimg.com")) {
+            currentArtistImageUrl = imageOrName;
             loadImage(binding.ivBig, currentArtistImageUrl);
         } else {
-            try {
-                Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
-            } catch (Exception e) {
-                e.printStackTrace();
+            if (imageCache.containsKey(imageOrName)) {
+                currentArtistImageUrl = imageCache.get(imageOrName);
+                loadImage(binding.ivBig, currentArtistImageUrl);
+            } else {
+                try {
+                    Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                fetchDeezerImage(imageOrName, binding.ivBig);
             }
-            fetchDeezerImage(artistName, binding.ivBig);
         }
     }
 
     private void loadImage(ImageView imageView, String imageUrl) {
         try {
-            Glide.with(this).asBitmap().apply(new RequestOptions().placeholder(R.drawable.noimage).error(R.drawable.noimage)).load(imageUrl).into(imageView);
+            Glide.with(this)
+                    .asBitmap()
+                    .apply(new RequestOptions().placeholder(R.drawable.noimage).error(R.drawable.noimage))
+                    .load(imageUrl)
+                    .into(imageView);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -460,9 +619,15 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
                 return;
             }
             if (currentTrackList != null && !currentTrackList.isEmpty()) {
-                currentPlayingIndex = 0;
-                TrackInfoBean.Track firstTrack = currentTrackList.get(0);
-                String searchQuery = firstTrack.getName() + " " + artistName;
+                if (currentPlayingIndex < 0 || currentPlayingIndex >= currentTrackList.size()) {
+                    currentPlayingIndex = 0;
+                }
+
+                TrackInfoBean.Track activeTrack = currentTrackList.get(currentPlayingIndex);
+                updateAdapterTrackState();
+                updateBigHeaderImage(activeTrack);
+
+                String searchQuery = buildSearchQuery(activeTrack);
                 showLoading();
                 musicListPresenter.getSearchListQuery(searchQuery);
             } else {
@@ -485,7 +650,7 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
 
     @Override
     public void getArtistTrackSuccess(TrackInfoBean trackInfoBean) {
-        if (trackInfoBean != null && trackInfoBean.getTopTracks() != null && trackInfoBean.getTopTracks().getTrackList() != null) {
+        if (!isFromFavorite && trackInfoBean != null && trackInfoBean.getTopTracks() != null && trackInfoBean.getTopTracks().getTrackList() != null) {
             List<TrackInfoBean.Track> trackList = trackInfoBean.getTopTracks().getTrackList();
             if (!trackList.isEmpty()) {
                 currentTrackList = trackList;

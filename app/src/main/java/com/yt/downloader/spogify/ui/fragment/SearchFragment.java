@@ -35,7 +35,6 @@ import com.yt.downloader.spogify.ui.activity.VideoWatchActivity;
 import java.util.ArrayList;
 import java.util.List;
 
-
 public class SearchFragment extends Fragment implements View.OnClickListener, MusicListContract.View {
     private FragmentSearchBinding binding;
     private MusicListAdapter musicListAdapter;
@@ -48,7 +47,6 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
         binding.ivBtnSearch.setOnClickListener(this);
         initRecycler();
         musicListPresenter = new MusicListPresenter(this);
-
 
         binding.swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
             @Override
@@ -74,9 +72,17 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
                 startActivity(new Intent(getContext(), VideoWatchActivity.class)
                         .putExtra("videoId", videoId)
                         .putExtra("title", title)
-                        .putExtra("tumbnail",thumbnail));
+                        .putExtra("tumbnail", thumbnail));
             }
         });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (musicListAdapter != null) {
+            musicListAdapter.notifyDataSetChanged();
+        }
     }
 
     @Override
@@ -85,21 +91,16 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
             hideKeyboard(getActivity());
             refreshData();
         }
-
     }
 
     private void refreshData() {
-
         String musicQuery = binding.etSearch.getText().toString().trim();
         if (TextUtils.isEmpty(musicQuery)) {
             binding.swipeRefresh.setRefreshing(false);
-            return;
-        }
-
-        if (TextUtils.isEmpty(musicQuery)) {
             Toast.makeText(getContext(), "Please enter music name", Toast.LENGTH_SHORT).show();
             return;
         }
+
         if (!isNetworkAvailable()) {
             if (binding.swipeRefresh.isRefreshing()) {
                 binding.swipeRefresh.setRefreshing(false);
@@ -108,7 +109,7 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
             return;
         }
 
-        SPUtils.getInstance().put(AppConstant.recentSearch,musicQuery);
+        SPUtils.getInstance().put(AppConstant.recentSearch, musicQuery);
         if (!itemsBeans.isEmpty()) {
             itemsBeans.clear();
             musicListAdapter.setNewData(itemsBeans);
@@ -117,18 +118,21 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
     }
 
     private static void hideKeyboard(Activity activity) {
+        if (activity == null) return;
         InputMethodManager imm = (InputMethodManager) activity.getSystemService(Activity.INPUT_METHOD_SERVICE);
         View view = activity.getCurrentFocus();
         if (view == null) {
             view = new View(activity);
         }
-        imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        }
     }
-
 
     @SuppressWarnings("deprecation")
     @SuppressLint("MissingPermission")
     private boolean isNetworkAvailable() {
+        if (getActivity() == null) return false;
         ConnectivityManager connectivityManager = (ConnectivityManager) getActivity().getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkInfo activeNetworkInfo = connectivityManager != null ? connectivityManager.getActiveNetworkInfo() : null;
         return activeNetworkInfo != null && activeNetworkInfo.isConnected();
@@ -162,10 +166,16 @@ public class SearchFragment extends Fragment implements View.OnClickListener, Mu
 
     @Override
     public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
-        if (youtubeSearchBean != null && !youtubeSearchBean.getItems().isEmpty()) {
+        if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && !youtubeSearchBean.getItems().isEmpty()) {
+            itemsBeans.clear();
             itemsBeans.addAll(youtubeSearchBean.getItems());
             musicListAdapter.setNewData(itemsBeans);
         }
+    }
 
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        binding = null;
     }
 }

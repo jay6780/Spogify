@@ -5,7 +5,7 @@
     android:layout_height="60dp"
     android:background="?attr/selectableItemBackground"
     android:paddingHorizontal="16dp">
->
+
     <FrameLayout
         android:id="@+id/fl_rank_container"
         android:layout_width="24dp"
@@ -38,7 +38,7 @@
         android:layout_centerVertical="true"
         android:layout_marginStart="12dp"
         android:layout_toEndOf="@id/iv_track_cover"
-        android:layout_toStartOf="@id/iv_track_more"
+        android:layout_toStartOf="@id/iv_add_favorite"
         android:orientation="vertical">
 
         <LinearLayout
@@ -75,13 +75,16 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+
     <ImageView
-        android:id="@+id/iv_track_more"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:id="@+id/iv_add_favorite"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
         android:layout_alignParentEnd="true"
         android:layout_centerVertical="true"
-        android:src="@drawable/ic_more_vert"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="2dp"
+        android:src="@android:drawable/ic_input_add"
         app:tint="#B3B3B3" />
 
 </RelativeLayout>

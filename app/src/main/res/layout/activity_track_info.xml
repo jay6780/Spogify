@@ -63,12 +63,14 @@
                     android:orientation="horizontal">
 
                     <ImageView
+                        android:id="@+id/iv_verified"
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:src="@drawable/ic_verified_badge"
                         app:tint="#1DB954" />
 
                     <TextView
+                        android:id="@+id/tv_verified"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
@@ -170,13 +172,6 @@
                         app:strokeColor="#727272"
                         app:strokeWidth="1dp" />
 
-                    <ImageView
-                        android:id="@+id/iv_more"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginStart="16dp"
-                        android:src="@drawable/ic_more_vert"
-                        app:tint="#B3B3B3" />
 
                     <View
                         android:layout_width="0dp"
