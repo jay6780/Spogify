@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.gson.Gson;
+import com.kaopiz.kprogresshud.KProgressHUD;
 import com.yt.downloader.R;
 import com.yt.downloader.databinding.ActivityTrackInfoBinding;
 import com.yt.downloader.spogify.Retrofit.AppConstant;
@@ -75,6 +76,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private boolean isDownloadingProcess = false;
     private TrackInfoBean.Track currentDownloadTrack;
     private FilesExtractor filesExtractor;
+    private KProgressHUD hud;
 
     private final ActivityResultLauncher<String> storagePermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
@@ -163,7 +165,9 @@ public class TrackInfoActivity extends MiniPlayerActivity
         bindMiniPlayer(binding.layoutMiniPlayer);
 
         updateFollowButtonUI();
-
+        hud = KProgressHUD.create(this)
+                .setStyle(KProgressHUD.Style.SPIN_INDETERMINATE)
+                .setLabel("Please wait");
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
 
@@ -325,7 +329,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
             } else {
                 isDownloadingProcess = false;
                 String searchQuery = buildSearchQuery(track);
-                showLoading();
                 musicListPresenter.getSearchListQuery(searchQuery);
             }
         });
@@ -363,28 +366,21 @@ public class TrackInfoActivity extends MiniPlayerActivity
     }
 
     private void playNextTrack() {
-        if (currentTrackList != null && !currentTrackList.isEmpty()) {
-            currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
-            TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
+        if (currentTrackList == null || currentTrackList.isEmpty()) return;
 
-            boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
-
-            updateBigHeaderImage(nextTrack);
-
-            if (isDownloaded || isFromDownload) {
-                File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
-                if (localAudio != null) {
-                    playLocalAudioFile(localAudio, nextTrack.getName());
-                }
-            } else {
-                updateAdapterTrackState();
-                String searchQuery = buildSearchQuery(nextTrack);
-                showLoading();
-                musicListPresenter.getSearchListQuery(searchQuery);
-            }
+        currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
+        TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
+        syncQueueToState();
+        boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
+        updateBigHeaderImage(nextTrack);
+        if (isDownloaded || isFromDownload) {
+            File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
+            if (localAudio != null) playLocalAudioFile(localAudio, nextTrack.getName());
+        } else {
+            updateAdapterTrackState();
+            musicListPresenter.getSearchListQuery(buildSearchQuery(nextTrack));
         }
     }
-
 
     private void checkPermissionAndDownload(TrackInfoBean.Track track) {
         currentDownloadTrack = track;
@@ -402,7 +398,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         isDownloadingProcess = true;
         currentDownloadTrack = track;
         String searchQuery = buildSearchQuery(track);
-        showLoading();
         musicListPresenter.getSearchListQuery(searchQuery);
     }
 
@@ -474,7 +469,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         int index = findPlayingIndex();
 
-        if (index >= 0 && state.isPlaying) {
+        if (index >= 0) {
             TrackInfoBean.Track track = currentTrackList.get(index);
 
             if (track != null && !TextUtils.isEmpty(track.getName())) {
@@ -535,12 +530,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private int findPlayingIndex() {
         PlayerState s = PlayerState.get();
         if (!s.hasTrack) return -1;
-        int idx = -1;
+
         if (s.queueIndex >= 0 && s.queueIndex < s.queue.size()) {
-            idx = findTrackIndexByName(s.queue.get(s.queueIndex).name);
+            return findTrackIndexByName(s.queue.get(s.queueIndex).name);
         }
-        if (idx < 0) idx = findTrackIndexByName(s.title);
-        return idx;
+        return findTrackIndexByName(s.title);
     }
 
     /** Sync currentPlayingIndex (and header image) with whatever is actually playing. */
@@ -694,7 +688,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 isDownloadingProcess = false;
                 updateAdapterTrackState();
                 String searchQuery = buildSearchQuery(activeTrack);
-                showLoading();
                 musicListPresenter.getSearchListQuery(searchQuery);
             }
         } else {
@@ -708,23 +701,39 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showLoading() {
+        if(hud !=null && !hud.isShowing()){
+            hud.show();
+        }
     }
 
     @Override
     public void showError(String error) {
+        if(hud !=null && hud.isShowing()){
+            hud.dismiss();
+        }
     }
 
     @Override
     public void hideLoading() {
+        if(hud !=null && hud.isShowing()){
+            hud.dismiss();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (hud != null && hud.isShowing()) {
+            hud.dismiss();
+        }
+        hud = null;
+        super.onDestroy();
     }
 
     @Override
     public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
-        hideLoading();
         if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && !youtubeSearchBean.getItems().isEmpty()) {
             YoutubeSearchBean.ItemsBean item = youtubeSearchBean.getItems().get(0);
             if (isDownloadingProcess && currentDownloadTrack != null) {
-                isDownloadingProcess = false;
                 String ytUrl = "https://www.youtube.com/watch?v=" + item.getId();
                 trackInfoPresenter.getDownloadQuery(ytUrl, "mp3", 128);
             } else {
@@ -738,6 +747,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     @Override
     public void getDownloadSuccess(Mp3downloadBean mp3downloadBean) {
         if (mp3downloadBean != null && !TextUtils.isEmpty(mp3downloadBean.getDownloadUrl())) {
+            isDownloadingProcess = false;
             String downloadUrl = mp3downloadBean.getDownloadUrl();
             String trackName = currentDownloadTrack != null ? currentDownloadTrack.getName() : "downloaded_track";
 
@@ -769,11 +779,13 @@ public class TrackInfoActivity extends MiniPlayerActivity
                         if (trackInfoAdapter != null) {
                             trackInfoAdapter.updateDownloadProgress(trackName, 100);
                         }
+                        isDownloadingProcess = false;
                         Toast.makeText(TrackInfoActivity.this, "Download Error: " + error, Toast.LENGTH_SHORT).show();
                     });
                 }
             });
         } else {
+            isDownloadingProcess = false;
             Toast.makeText(this, "Failed to resolve download link", Toast.LENGTH_SHORT).show();
         }
     }
@@ -835,5 +847,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
             s.queue.add(new PlayerState.Item(name, artist, "", t.getImageUrl(), path));
         }
         s.queueIndex = currentPlayingIndex;
+    }
+
+    @Override
+    public void onTrackChanged() {
+        syncIndexFromPlayerState();
+        updateAdapterTrackState();
     }
 }

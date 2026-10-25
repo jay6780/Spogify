@@ -8,6 +8,8 @@
     android:background="@drawable/bg_mini_player"
     android:elevation="8dp"
     android:padding="6dp"
+    android:clickable="true"
+    android:focusable="true"
     android:visibility="gone">
 
     <FrameLayout

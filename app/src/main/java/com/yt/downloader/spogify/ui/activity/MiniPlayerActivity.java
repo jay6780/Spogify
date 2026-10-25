@@ -82,6 +82,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 if (!TextUtils.equals(lastMiniTrackKey, trackKey)) {
                     lastMiniTrackKey = trackKey;
                     syncMiniPlayerInfo();
+                    onTrackChanged();
                 }
 
                 if (s.durationSec > 0) {
@@ -143,6 +144,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     public String getTargetActivityName() {
         return getClass().getName();
     }
+    public void onTrackChanged() { }
 
     // ---------------------------------------------------------------
     // Ownership helpers
@@ -301,7 +303,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         miniYouTubePlayerView = mini.miniYoutubePlayerView;
         miniYouTubePlayerView.enableBackgroundPlayback(true);
         getLifecycle().removeObserver(miniYouTubePlayerView);
-
+        mini.rlMiniPlayer.setClickable(true);
+        mini.rlMiniPlayer.setFocusable(true);
+        mini.vMiniClickOverlay.setClickable(true);
         IFramePlayerOptions options = new IFramePlayerOptions.Builder(this)
                 .controls(0)
                 .autoplay(1)
@@ -411,6 +415,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     // Public playback API
     // ---------------------------------------------------------------
 
+
     public void playOnline(String videoId, String title, String artist, String thumbUrl) {
         playOnline(videoId, title, artist, thumbUrl, 0f);
     }
@@ -516,6 +521,10 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             queuePresenter.getSearchListQuery((it.name + " " + it.artist).trim() + " official audio");
         }
     }
+
+
+
+
 
     /** Toggle play / pause for whichever source is active. */
     public void togglePlayPause() {
@@ -719,4 +728,5 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             owner.sendStateToService(false);
         }
     }
+
 }
