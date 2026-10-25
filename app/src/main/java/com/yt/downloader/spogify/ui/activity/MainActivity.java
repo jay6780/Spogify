@@ -1,6 +1,7 @@
 package com.yt.downloader.spogify.ui.activity;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -8,11 +9,9 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Toast;
 
-import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentTransaction;
@@ -20,11 +19,15 @@ import androidx.lifecycle.Lifecycle;
 
 import com.yt.downloader.R;
 import com.yt.downloader.databinding.ActivityMainBinding;
+import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.ui.fragment.HomeFragment;
 import com.yt.downloader.spogify.ui.fragment.PlayListFragment;
 import com.yt.downloader.spogify.ui.fragment.SearchFragment;
 
-public class MainActivity extends AppCompatActivity implements View.OnClickListener {
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends MiniPlayerActivity implements View.OnClickListener {
 
     private ActivityMainBinding binding;
 
@@ -37,6 +40,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        bindMiniPlayer(binding.layoutMiniPlayer);
 
         askNotificationPermission();
 
@@ -48,16 +52,20 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private void askNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
         }
     }
 
-    private final ActivityResultLauncher<String> notificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-        if (!granted) {
-            Toast.makeText(this, "Enable notifications to control background playback", Toast.LENGTH_LONG).show();
-        }
-    });
+    private final ActivityResultLauncher<String> notificationPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (!granted) {
+                    Toast.makeText(this, "Enable notifications to control background playback",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
 
     private void initFragments(@Nullable Bundle savedInstanceState) {
         if (savedInstanceState != null) {

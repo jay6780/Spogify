@@ -1,10 +1,6 @@
 package com.yt.downloader.spogify.ui.activity;
 
 import android.Manifest;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,27 +13,19 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.gson.Gson;
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants;
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer;
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener;
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions;
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView;
 import com.yt.downloader.R;
 import com.yt.downloader.databinding.ActivityTrackInfoBinding;
 import com.yt.downloader.spogify.Retrofit.AppConstant;
-import com.yt.downloader.spogify.Service.PlaybackService;
 import com.yt.downloader.spogify.Utils.DownloadTrackModel;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FollowDatabaseHelper;
-import com.yt.downloader.spogify.Utils.LocalAudioPlayer;
+import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.Utils.WindowUtils;
 import com.yt.downloader.spogify.Utils.fileUtils.FilesExtractor;
 import com.yt.downloader.spogify.Utils.fileUtils.VideoFile;
@@ -64,7 +52,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
-public class TrackInfoActivity extends AppCompatActivity implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View {
+public class TrackInfoActivity extends MiniPlayerActivity
+        implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View {
 
     private ActivityTrackInfoBinding binding;
     private String artistName;
@@ -81,20 +70,8 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
     private FollowDatabaseHelper dbHelper;
     private FavoriteDatabaseHelper favDbHelper;
 
-    private YouTubePlayerView miniYouTubePlayerView;
-    private YouTubePlayer miniPlayer;
-    private boolean isPlaying = false;
-    private String pendingVideoId = "";
-    private String currentPlayingTitle = "";
-    private String currentPlayingVideoId = "";
-    private String currentPlayingThumb = "";
-    private float totalDuration = 0f;
-    private float currentSecond = 0f;
-    private boolean receiverRegistered = false;
-
     private List<TrackInfoBean.Track> currentTrackList = new ArrayList<>();
     private int currentPlayingIndex = 0;
-    private boolean isLocalPlayback = false;
     private boolean isDownloadingProcess = false;
     private TrackInfoBean.Track currentDownloadTrack;
     private FilesExtractor filesExtractor;
@@ -115,39 +92,34 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
                 // Permission outcome handled
             });
 
-    private final BroadcastReceiver controlReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent == null || intent.getAction() == null) return;
-            String action = intent.getAction();
+    // ---------------------------------------------------------------
+    // MiniPlayerActivity hooks
+    // ---------------------------------------------------------------
 
-            if (PlaybackService.ACTION_PLAY.equals(action)) {
-                if (isLocalPlayback) {
-                    LocalAudioPlayer.getInstance().resume();
-                } else if (miniPlayer != null) {
-                    miniPlayer.play();
-                }
-            } else if (PlaybackService.ACTION_PAUSE.equals(action)) {
-                if (isLocalPlayback) {
-                    LocalAudioPlayer.getInstance().pause();
-                } else if (miniPlayer != null) {
-                    miniPlayer.pause();
-                }
-            } else if (PlaybackService.ACTION_NEXT.equals(action)) {
-                playNextTrack();
-            } else if (PlaybackService.ACTION_SEEK.equals(action)) {
-                long posMs = intent.getLongExtra(PlaybackService.EXTRA_CURRENT_POSITION, 0);
-                if (isLocalPlayback) {
-                    LocalAudioPlayer.getInstance().seekTo(posMs);
-                } else if (miniPlayer != null) {
-                    miniPlayer.seekTo(posMs / 1000f);
-                }
-            } else if (PlaybackService.ACTION_STATE.equals(action)) {
-                isPlaying = intent.getBooleanExtra(PlaybackService.EXTRA_IS_PLAYING, false);
-                updateMiniPlayerPlayPauseIcon();
-            }
+    @Override
+    public void onNextTrackRequested() {
+        PlayerState s = PlayerState.get();
+        // If the playing song is not in THIS list, use the shared queue instead
+        if (s.hasTrack && !s.queue.isEmpty() && findPlayingIndex() < 0) {
+            super.onNextTrackRequested();
+            return;
         }
-    };
+        syncIndexFromPlayerState();
+        playNextTrack();
+    }
+
+    @Override
+    public void onPlaybackStateUpdated(boolean playing) {
+        syncIndexFromPlayerState();
+        if (binding != null) {
+            updateFabPlayPauseIcon();
+        }
+        updateAdapterTrackState();
+    }
+
+    // ---------------------------------------------------------------
+    // Lifecycle
+    // ---------------------------------------------------------------
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -186,7 +158,10 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         checkNotificationPermission();
         initAppBarLayoutScrollListener();
         initRecycler();
-        initMiniPlayer();
+
+        // Mini player (online + local) lives in MiniPlayerActivity
+        bindMiniPlayer(binding.layoutMiniPlayer);
+
         updateFollowButtonUI();
 
         trackInfoPresenter = new TrackInfoPresenter(this);
@@ -204,8 +179,19 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         binding.tvVerified.setVisibility((isFromFavorite || isFromDownload) ? View.GONE : View.VISIBLE);
         binding.btnFollow.setVisibility((isFromFavorite || isFromDownload) ? View.GONE : View.VISIBLE);
         binding.ivVerified.setVisibility((isFromFavorite || isFromDownload) ? View.GONE : View.VISIBLE);
+    }
 
-        registerControlReceiver();
+    @Override
+    protected void onStart() {
+        super.onStart();
+        new WindowUtils(this, false, false);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        syncIndexFromPlayerState();
+        updateAdapterTrackState();
     }
 
     private void checkNotificationPermission() {
@@ -217,25 +203,11 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         }
     }
 
-    private void registerControlReceiver() {
-        if (!receiverRegistered) {
-            IntentFilter filter = new IntentFilter();
-            filter.addAction(PlaybackService.ACTION_PLAY);
-            filter.addAction(PlaybackService.ACTION_PAUSE);
-            filter.addAction(PlaybackService.ACTION_NEXT);
-            filter.addAction(PlaybackService.ACTION_SEEK);
-            filter.addAction(PlaybackService.ACTION_STATE);
-            ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
-            receiverRegistered = true;
-        }
-    }
-
     private void loadDownloadedTracksOnly() {
         ArrayList<VideoFile> downloadedFiles = filesExtractor.listVideos();
         List<TrackInfoBean.Track> trackList = new ArrayList<>();
 
         int rank = 1;
-        int targetIndex = 0;
 
         for (int i = 0; i < downloadedFiles.size(); i++) {
             VideoFile vf = downloadedFiles.get(i);
@@ -252,10 +224,6 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
             t.setAttributes(attr);
 
             trackList.add(t);
-
-            if (!TextUtils.isEmpty(selectedTrackName) && cleanName.equalsIgnoreCase(selectedTrackName)) {
-                targetIndex = i;
-            }
         }
 
         Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
@@ -264,15 +232,9 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         currentTrackList = trackList;
         trackInfoAdapter.setNewData(trackList);
 
-        if (!currentTrackList.isEmpty()) {
-            currentPlayingIndex = targetIndex;
-            TrackInfoBean.Track selectedTrack = currentTrackList.get(currentPlayingIndex);
-
-            File localFile = filesExtractor.getDownloadedFile(selectedTrack.getName());
-            if (localFile != null) {
-                playLocalAudioFile(localFile, selectedTrack.getName());
-            }
-        }
+        currentPlayingIndex = -1;
+        syncIndexFromPlayerState();
+        updateAdapterTrackState();
     }
 
     private void loadFavoriteTracksOnly() {
@@ -280,7 +242,6 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         List<TrackInfoBean.Track> trackList = new ArrayList<>();
 
         int rank = 1;
-        int targetIndex = 0;
         String favHeaderImage = "";
 
         for (int i = 0; i < favList.size(); i++) {
@@ -297,7 +258,6 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
             trackList.add(t);
 
             if (!TextUtils.isEmpty(selectedTrackName) && fav.getMusicName().equalsIgnoreCase(selectedTrackName)) {
-                targetIndex = i;
                 favHeaderImage = fav.getImageThumb();
             }
         }
@@ -314,19 +274,10 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         currentTrackList = trackList;
         trackInfoAdapter.setNewData(trackList);
 
-        if (!currentTrackList.isEmpty()) {
-            currentPlayingIndex = targetIndex;
-            TrackInfoBean.Track selectedTrack = currentTrackList.get(currentPlayingIndex);
-
-            updateAdapterTrackState();
-            updateBigHeaderImage(selectedTrack);
-
-            String searchQuery = buildSearchQuery(selectedTrack);
-            showLoading();
-            musicListPresenter.getSearchListQuery(searchQuery);
-        }
+        currentPlayingIndex = -1;
+        syncIndexFromPlayerState();
+        updateAdapterTrackState();
     }
-
     private void updateFollowButtonUI() {
         if (binding.btnFollow == null || TextUtils.isEmpty(artistName)) return;
         boolean isFollowed = dbHelper.isArtistFollowed(artistName);
@@ -373,7 +324,6 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
                 }
             } else {
                 isDownloadingProcess = false;
-                updateAdapterTrackState();
                 String searchQuery = buildSearchQuery(track);
                 showLoading();
                 musicListPresenter.getSearchListQuery(searchQuery);
@@ -392,39 +342,47 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
     }
 
     private void playLocalAudioFile(File file, String trackTitle) {
-        isLocalPlayback = true;
-        currentPlayingVideoId = "";
-        if (miniPlayer != null) {
-            miniPlayer.pause();
-        }
-        registerControlReceiver();
-
-        if (binding.layoutMiniPlayer.miniYoutubePlayerView != null) {
-            binding.layoutMiniPlayer.miniYoutubePlayerView.setVisibility(View.GONE);
-        }
-        if (binding.layoutMiniPlayer.ivMiniCover != null) {
-            binding.layoutMiniPlayer.ivMiniCover.setVisibility(View.VISIBLE);
-            Glide.with(this).load(R.mipmap.app_logo).into(binding.layoutMiniPlayer.ivMiniCover);
-        }
-
-        LocalAudioPlayer.getInstance().playFile(file);
-        isPlaying = true;
-
-        binding.layoutMiniPlayer.rlMiniPlayer.setVisibility(View.VISIBLE);
-        binding.layoutMiniPlayer.tvMiniTitle.setText(trackTitle);
-        binding.layoutMiniPlayer.tvMiniArtist.setText(TextUtils.isEmpty(artistName) ? "Downloaded Track" : artistName);
-
-        updateMiniPlayerPlayPauseIcon();
+        syncQueueToState();
+        playLocal(file, trackTitle, artistName);
         updateAdapterTrackState();
+    }
 
-        Intent i = new Intent(this, PlaybackService.class);
-        i.setAction(PlaybackService.ACTION_START);
-        i.putExtra("videoId", "local_file");
-        i.putExtra("title", trackTitle);
-        i.putExtra("thumbnail", "");
-        i.putExtra("tumbnail", "");
-        i.putExtra(PlaybackService.EXTRA_TARGET_ACTIVITY, TrackInfoActivity.class.getName());
-        ContextCompat.startForegroundService(this, i);
+    private void playVideoInMiniPlayer(String videoId, String title, String thumbUrl) {
+        String displayArtist = artistName;
+        if (isFromFavorite && currentTrackList != null && currentPlayingIndex < currentTrackList.size()) {
+            FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(currentTrackList.get(currentPlayingIndex).getName());
+            if (fav != null && !TextUtils.isEmpty(fav.getArtistName())) {
+                displayArtist = fav.getArtistName();
+            } else {
+                displayArtist = "Favorite Track";
+            }
+        }
+        syncQueueToState();   // BEFORE playOnline, so the index is right when the hook fires
+        playOnline(videoId, title, displayArtist, thumbUrl);
+        updateAdapterTrackState();
+    }
+
+    private void playNextTrack() {
+        if (currentTrackList != null && !currentTrackList.isEmpty()) {
+            currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
+            TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
+
+            boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
+
+            updateBigHeaderImage(nextTrack);
+
+            if (isDownloaded || isFromDownload) {
+                File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
+                if (localAudio != null) {
+                    playLocalAudioFile(localAudio, nextTrack.getName());
+                }
+            } else {
+                updateAdapterTrackState();
+                String searchQuery = buildSearchQuery(nextTrack);
+                showLoading();
+                musicListPresenter.getSearchListQuery(searchQuery);
+            }
+        }
     }
 
 
@@ -465,116 +423,6 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
             return trackName + " official audio";
         }
     }
-
-    private void initMiniPlayer() {
-        miniYouTubePlayerView = binding.layoutMiniPlayer.miniYoutubePlayerView;
-
-        miniYouTubePlayerView.enableBackgroundPlayback(true);
-        getLifecycle().removeObserver(miniYouTubePlayerView);
-
-        IFramePlayerOptions options = new IFramePlayerOptions.Builder(this)
-                .controls(0)
-                .autoplay(1)
-                .build();
-
-        miniYouTubePlayerView.initialize(new AbstractYouTubePlayerListener() {
-            @Override
-            public void onReady(@NonNull YouTubePlayer youTubePlayer) {
-                miniPlayer = youTubePlayer;
-                if (!isLocalPlayback && !TextUtils.isEmpty(pendingVideoId)) {
-                    miniPlayer.loadVideo(pendingVideoId, 0);
-                    pendingVideoId = "";
-                }
-            }
-
-            @Override
-            public void onCurrentSecond(@NonNull YouTubePlayer youTubePlayer, float second) {
-                if (!isLocalPlayback) {
-                    currentSecond = second;
-                    if (totalDuration > 0) {
-                        int progress = (int) ((second / totalDuration) * 1000);
-                        binding.layoutMiniPlayer.miniProgressBar.setProgress(progress);
-                    }
-                    sendStateToService(isPlaying);
-                }
-            }
-
-            @Override
-            public void onVideoDuration(@NonNull YouTubePlayer youTubePlayer, float duration) {
-                if (!isLocalPlayback) {
-                    totalDuration = duration;
-                    sendStateToService(isPlaying);
-                }
-            }
-
-            @Override
-            public void onStateChange(@NonNull YouTubePlayer youTubePlayer, @NonNull PlayerConstants.PlayerState state) {
-                if (!isLocalPlayback) {
-                    if (state == PlayerConstants.PlayerState.PLAYING) {
-                        isPlaying = true;
-                        updateMiniPlayerPlayPauseIcon();
-                        sendStateToService(true);
-                    } else if (state == PlayerConstants.PlayerState.PAUSED) {
-                        isPlaying = false;
-                        updateMiniPlayerPlayPauseIcon();
-                        sendStateToService(false);
-                    } else if (state == PlayerConstants.PlayerState.ENDED) {
-                        isPlaying = false;
-                        updateMiniPlayerPlayPauseIcon();
-                        binding.layoutMiniPlayer.miniProgressBar.setProgress(1000);
-                        sendStateToService(false);
-                        playNextTrack();
-                    }
-                }
-            }
-        }, options);
-
-        binding.layoutMiniPlayer.ivMiniPlayPause.setOnClickListener(v -> {
-            if (isLocalPlayback) {
-                LocalAudioPlayer.getInstance().togglePlayPause();
-            } else if (miniPlayer != null) {
-                if (isPlaying) {
-                    miniPlayer.pause();
-                } else {
-                    miniPlayer.play();
-                }
-            }
-        });
-
-        LocalAudioPlayer.getInstance().setPlayerStateListener(new LocalAudioPlayer.PlayerStateListener() {
-            @Override
-            public void onProgressUpdate(float currentSec, float totalDurSec) {
-                if (isLocalPlayback) {
-                    currentSecond = currentSec;
-                    totalDuration = totalDurSec;
-                    if (totalDurSec > 0) {
-                        int progress = (int) ((currentSec / totalDurSec) * 1000);
-                        binding.layoutMiniPlayer.miniProgressBar.setProgress(progress);
-                    }
-                    sendStateToService(isPlaying);
-                }
-            }
-
-            @Override
-            public void onStateChanged(boolean playing) {
-                if (isLocalPlayback) {
-                    isPlaying = playing;
-                    updateMiniPlayerPlayPauseIcon();
-                    sendStateToService(playing);
-                }
-            }
-
-            @Override
-            public void onCompletion() {
-                if (isLocalPlayback) {
-                    isPlaying = false;
-                    updateMiniPlayerPlayPauseIcon();
-                    playNextTrack();
-                }
-            }
-        });
-    }
-
     private void updateBigHeaderImage(TrackInfoBean.Track track) {
         if (track == null) return;
 
@@ -613,111 +461,30 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         }
     }
 
-    private void playNextTrack() {
-        if (currentTrackList != null && !currentTrackList.isEmpty()) {
-            currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
-            TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
-
-            boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
-
-            updateBigHeaderImage(nextTrack);
-
-            if (isDownloaded || isFromDownload) {
-                File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
-                if (localAudio != null) {
-                    playLocalAudioFile(localAudio, nextTrack.getName());
-                }
-            } else {
-                updateAdapterTrackState();
-                String searchQuery = buildSearchQuery(nextTrack);
-                showLoading();
-                musicListPresenter.getSearchListQuery(searchQuery);
-            }
-        }
-    }
-
-    private void playVideoInMiniPlayer(String videoId, String title, String thumbUrl) {
-        if (isLocalPlayback) {
-            isLocalPlayback = false;
-            LocalAudioPlayer.getInstance().stop();
-        }
-
-        if (binding.layoutMiniPlayer.ivMiniCover != null) {
-            binding.layoutMiniPlayer.ivMiniCover.setVisibility(View.GONE);
-        }
-        if (binding.layoutMiniPlayer.miniYoutubePlayerView != null) {
-            binding.layoutMiniPlayer.miniYoutubePlayerView.setVisibility(View.VISIBLE);
-        }
-
-        currentPlayingVideoId = videoId;
-        currentPlayingTitle = title;
-        currentPlayingThumb = thumbUrl;
-
-        binding.layoutMiniPlayer.rlMiniPlayer.setVisibility(View.VISIBLE);
-        binding.layoutMiniPlayer.tvMiniTitle.setText(title);
-
-        String displayArtist = artistName;
-        if (isFromFavorite && currentTrackList != null && currentPlayingIndex < currentTrackList.size()) {
-            FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(currentTrackList.get(currentPlayingIndex).getName());
-            if (fav != null && !TextUtils.isEmpty(fav.getArtistName())) {
-                displayArtist = fav.getArtistName();
-            } else {
-                displayArtist = "Favorite Track";
-            }
-        }
-        binding.layoutMiniPlayer.tvMiniArtist.setText(TextUtils.isEmpty(displayArtist) ? "Music" : displayArtist);
-
-        if (miniPlayer != null) {
-            miniPlayer.loadVideo(videoId, 0);
-        } else {
-            pendingVideoId = videoId;
-        }
-
-        isPlaying = true;
-        updateAdapterTrackState();
-
-        Intent i = new Intent(this, PlaybackService.class);
-        i.setAction(PlaybackService.ACTION_START);
-        i.putExtra("videoId", videoId);
-        i.putExtra("title", title);
-        i.putExtra("thumbnail", thumbUrl);
-        i.putExtra("tumbnail", thumbUrl);
-        i.putExtra(PlaybackService.EXTRA_TARGET_ACTIVITY, TrackInfoActivity.class.getName());
-        ContextCompat.startForegroundService(this, i);
-    }
-
-    private void sendStateToService(boolean playing) {
-        try {
-            Intent i = new Intent(this, PlaybackService.class);
-            i.setAction(PlaybackService.ACTION_STATE);
-            i.putExtra(PlaybackService.EXTRA_IS_PLAYING, playing);
-            i.putExtra(PlaybackService.EXTRA_CURRENT_POSITION, (long) (currentSecond * 1000));
-            i.putExtra(PlaybackService.EXTRA_DURATION, (long) (totalDuration * 1000));
-
-            ContextCompat.startForegroundService(this, i);
-        } catch (Exception ignored) {
-            ignored.printStackTrace();
-        }
-    }
-
-    private void updateMiniPlayerPlayPauseIcon() {
-        if (isPlaying) {
-            binding.layoutMiniPlayer.ivMiniPlayPause.setImageResource(android.R.drawable.ic_media_pause);
-        } else {
-            binding.layoutMiniPlayer.ivMiniPlayPause.setImageResource(android.R.drawable.ic_media_play);
-        }
-        updateFabPlayPauseIcon();
-        updateAdapterTrackState();
-    }
-
     private void updateAdapterTrackState() {
-        if (trackInfoAdapter != null && currentTrackList != null && !currentTrackList.isEmpty()) {
-            if (currentPlayingIndex >= 0 && currentPlayingIndex < currentTrackList.size()) {
-                TrackInfoBean.Track playingTrack = currentTrackList.get(currentPlayingIndex);
-                if (playingTrack != null) {
-                    trackInfoAdapter.setPlayingTrackName(playingTrack.getName(), isPlaying);
-                }
+        if (trackInfoAdapter == null) return;
+
+        PlayerState state = PlayerState.get();
+
+        if (!state.hasTrack || currentTrackList == null
+                || currentTrackList.isEmpty()) {
+            trackInfoAdapter.setPlayingTrackName("", false);
+            return;
+        }
+
+        int index = findPlayingIndex();
+
+        if (index >= 0 && state.isPlaying) {
+            TrackInfoBean.Track track = currentTrackList.get(index);
+
+            if (track != null && !TextUtils.isEmpty(track.getName())) {
+                currentPlayingIndex = index;
+                trackInfoAdapter.setPlayingTrackName(track.getName(), true);
+            } else {
+                trackInfoAdapter.setPlayingTrackName("", false);
             }
+        } else {
+            trackInfoAdapter.setPlayingTrackName("", false);
         }
     }
 
@@ -729,63 +496,59 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
         }
     }
 
-    @Override
-    public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
-        hideLoading();
-        if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && !youtubeSearchBean.getItems().isEmpty()) {
-            YoutubeSearchBean.ItemsBean item = youtubeSearchBean.getItems().get(0);
-            if (isDownloadingProcess && currentDownloadTrack != null) {
-                isDownloadingProcess = false;
-                String ytUrl = "https://www.youtube.com/watch?v=" + item.getId();
-                trackInfoPresenter.getDownloadQuery(ytUrl, "mp3", 128);
-            } else {
-                playVideoInMiniPlayer(item.getId(), item.getTitle(), item.getThumbnail());
-            }
-        } else {
-            Toast.makeText(this, "Track not found on YouTube", Toast.LENGTH_SHORT).show();
-        }
+    private String normalize(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9 ]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
-    @Override
-    public void getDownloadSuccess(Mp3downloadBean mp3downloadBean) {
-        if (mp3downloadBean != null && !TextUtils.isEmpty(mp3downloadBean.getDownloadUrl())) {
-            String downloadUrl = mp3downloadBean.getDownloadUrl();
-            String trackName = currentDownloadTrack != null ? currentDownloadTrack.getName() : "downloaded_track";
+    /** Index in THIS screen's list matching the given name, or -1. Prefers the current index on ties. */
 
-            Toast.makeText(this, "Starting download for: " + trackName, Toast.LENGTH_SHORT).show();
+    private int findTrackIndexByName(String playingName) {
+        if (TextUtils.isEmpty(playingName)
+                || currentTrackList == null
+                || currentTrackList.isEmpty()) {
+            return -1;
+        }
 
-            DownloadTrackModel.downloadMp3File(this, downloadUrl, trackName, new DownloadTrackModel.DownloadCallback() {
-                @Override
-                public void onProgress(int progress) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        if (trackInfoAdapter != null) {
-                            trackInfoAdapter.updateDownloadProgress(trackName, progress);
-                        }
-                    });
-                }
+        String target = normalize(playingName);
 
-                @Override
-                public void onSuccess(String filePath) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        if (trackInfoAdapter != null) {
-                            trackInfoAdapter.updateDownloadProgress(trackName, 100);
-                        }
-                        Toast.makeText(TrackInfoActivity.this, "Saved to Music/downloaded_music: " + filePath, Toast.LENGTH_LONG).show();
-                    });
-                }
+        if (target.isEmpty()) return -1;
 
-                @Override
-                public void onError(String error) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        if (trackInfoAdapter != null) {
-                            trackInfoAdapter.updateDownloadProgress(trackName, 100);
-                        }
-                        Toast.makeText(TrackInfoActivity.this, "Download Error: " + error, Toast.LENGTH_SHORT).show();
-                    });
-                }
-            });
-        } else {
-            Toast.makeText(this, "Failed to resolve download link", Toast.LENGTH_SHORT).show();
+        for (int i = 0; i < currentTrackList.size(); i++) {
+            TrackInfoBean.Track track = currentTrackList.get(i);
+
+            if (track == null || TextUtils.isEmpty(track.getName())) {
+                continue;
+            }
+
+            if (normalize(track.getName()).equals(target)) {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /** Index of the currently playing track within this screen's list, or -1. */
+    private int findPlayingIndex() {
+        PlayerState s = PlayerState.get();
+        if (!s.hasTrack) return -1;
+        int idx = -1;
+        if (s.queueIndex >= 0 && s.queueIndex < s.queue.size()) {
+            idx = findTrackIndexByName(s.queue.get(s.queueIndex).name);
+        }
+        if (idx < 0) idx = findTrackIndexByName(s.title);
+        return idx;
+    }
+
+    /** Sync currentPlayingIndex (and header image) with whatever is actually playing. */
+    private void syncIndexFromPlayerState() {
+        int idx = findPlayingIndex();
+        if (idx >= 0 && idx != currentPlayingIndex) {
+            currentPlayingIndex = idx;
+            if (binding != null) updateBigHeaderImage(currentTrackList.get(idx));
         }
     }
 
@@ -890,68 +653,58 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
-        new WindowUtils(this, false, false);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (receiverRegistered) {
-            unregisterReceiver(controlReceiver);
-            receiverRegistered = false;
-        }
-        if (isLocalPlayback) {
-            LocalAudioPlayer.getInstance().stop();
-        }
-    }
-
-    @Override
     public void onClick(View v) {
         if (v.getId() == R.id.iv_back) {
             finish();
         } else if (v.getId() == R.id.btn_follow || (binding.btnFollow != null && v.getId() == binding.btnFollow.getId())) {
             toggleFollowStatus();
         } else if (v.getId() == R.id.fab_play || v.getId() == binding.fabPlay.getId()) {
-            if (isLocalPlayback) {
-                LocalAudioPlayer.getInstance().togglePlayPause();
-                return;
-            }
-            if (miniPlayer != null && !TextUtils.isEmpty(currentPlayingVideoId)) {
-                if (isPlaying) {
-                    miniPlayer.pause();
-                } else {
-                    miniPlayer.play();
-                }
-                return;
-            }
-            if (currentTrackList != null && !currentTrackList.isEmpty()) {
-                if (currentPlayingIndex < 0 || currentPlayingIndex >= currentTrackList.size()) {
-                    currentPlayingIndex = 0;
-                }
-
-                TrackInfoBean.Track activeTrack = currentTrackList.get(currentPlayingIndex);
-                boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(activeTrack.getName());
-
-                updateBigHeaderImage(activeTrack);
-
-                if (isDownloaded || isFromDownload) {
-                    File localAudio = filesExtractor.getDownloadedFile(activeTrack.getName());
-                    if (localAudio != null) {
-                        playLocalAudioFile(localAudio, activeTrack.getName());
-                    }
-                } else {
-                    updateAdapterTrackState();
-                    String searchQuery = buildSearchQuery(activeTrack);
-                    showLoading();
-                    musicListPresenter.getSearchListQuery(searchQuery);
-                }
-            } else {
-                Toast.makeText(this, "No tracks available to play", Toast.LENGTH_SHORT).show();
-            }
+            onFabPlayClicked();
         }
     }
+
+    private void onFabPlayClicked() {
+        if (isLoadedHere()) {
+            togglePlayPause();
+            return;
+        }
+        PlayerState s = PlayerState.get();
+        if (s.hasTrack && findPlayingIndex() >= 0) {
+            syncIndexFromPlayerState();
+            togglePlayPause();
+            return;
+        }
+
+        if (currentTrackList != null && !currentTrackList.isEmpty()) {
+            if (currentPlayingIndex < 0 || currentPlayingIndex >= currentTrackList.size()) {
+                currentPlayingIndex = 0;
+            }
+
+            TrackInfoBean.Track activeTrack = currentTrackList.get(currentPlayingIndex);
+            boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(activeTrack.getName());
+
+            updateBigHeaderImage(activeTrack);
+
+            if (isDownloaded || isFromDownload) {
+                File localAudio = filesExtractor.getDownloadedFile(activeTrack.getName());
+                if (localAudio != null) {
+                    playLocalAudioFile(localAudio, activeTrack.getName());
+                }
+            } else {
+                isDownloadingProcess = false;
+                updateAdapterTrackState();
+                String searchQuery = buildSearchQuery(activeTrack);
+                showLoading();
+                musicListPresenter.getSearchListQuery(searchQuery);
+            }
+        } else {
+            Toast.makeText(this, "No tracks available to play", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // MVP callbacks
+    // ---------------------------------------------------------------
 
     @Override
     public void showLoading() {
@@ -963,6 +716,66 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
 
     @Override
     public void hideLoading() {
+    }
+
+    @Override
+    public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
+        hideLoading();
+        if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && !youtubeSearchBean.getItems().isEmpty()) {
+            YoutubeSearchBean.ItemsBean item = youtubeSearchBean.getItems().get(0);
+            if (isDownloadingProcess && currentDownloadTrack != null) {
+                isDownloadingProcess = false;
+                String ytUrl = "https://www.youtube.com/watch?v=" + item.getId();
+                trackInfoPresenter.getDownloadQuery(ytUrl, "mp3", 128);
+            } else {
+                playVideoInMiniPlayer(item.getId(), item.getTitle(), item.getThumbnail());
+            }
+        } else {
+            Toast.makeText(this, "Track not found on YouTube", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void getDownloadSuccess(Mp3downloadBean mp3downloadBean) {
+        if (mp3downloadBean != null && !TextUtils.isEmpty(mp3downloadBean.getDownloadUrl())) {
+            String downloadUrl = mp3downloadBean.getDownloadUrl();
+            String trackName = currentDownloadTrack != null ? currentDownloadTrack.getName() : "downloaded_track";
+
+            Toast.makeText(this, "Starting download for: " + trackName, Toast.LENGTH_SHORT).show();
+
+            DownloadTrackModel.downloadMp3File(this, downloadUrl, trackName, new DownloadTrackModel.DownloadCallback() {
+                @Override
+                public void onProgress(int progress) {
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (trackInfoAdapter != null) {
+                            trackInfoAdapter.updateDownloadProgress(trackName, progress);
+                        }
+                    });
+                }
+
+                @Override
+                public void onSuccess(String filePath) {
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (trackInfoAdapter != null) {
+                            trackInfoAdapter.updateDownloadProgress(trackName, 100);
+                        }
+                        Toast.makeText(TrackInfoActivity.this, "Saved to Music/downloaded_music: " + filePath, Toast.LENGTH_LONG).show();
+                    });
+                }
+
+                @Override
+                public void onError(String error) {
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (trackInfoAdapter != null) {
+                            trackInfoAdapter.updateDownloadProgress(trackName, 100);
+                        }
+                        Toast.makeText(TrackInfoActivity.this, "Download Error: " + error, Toast.LENGTH_SHORT).show();
+                    });
+                }
+            });
+        } else {
+            Toast.makeText(this, "Failed to resolve download link", Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
@@ -987,7 +800,40 @@ public class TrackInfoActivity extends AppCompatActivity implements View.OnClick
                     totalListenersText = formatListenerCount(totalListeners);
                     binding.tvListeners.setText(totalListenersText);
                 }
+
+                // The list arrived after the screen opened: highlight what is already playing
+                syncIndexFromPlayerState();
+                updateAdapterTrackState();
             }
         }
+    }
+
+    /** Tapping the notification reopens Main, which always has the mini player. */
+    @Override
+    public String getTargetActivityName() {
+        return MainActivity.class.getName();
+    }
+
+    /** Publish this screen's track list so Next works from MainActivity / the notification. */
+    private void syncQueueToState() {
+        if (currentTrackList == null || currentTrackList.isEmpty()) return;
+        PlayerState s = PlayerState.get();
+
+        s.queue.clear();
+        for (TrackInfoBean.Track t : currentTrackList) {
+            String name = t.getName();
+            String artist = artistName;
+            if (isFromFavorite) {
+                FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(name);
+                artist = (fav != null && !TextUtils.isEmpty(fav.getArtistName())) ? fav.getArtistName() : "";
+            }
+            String path = "";
+            if (isFromDownload || filesExtractor.isFileDownloaded(name)) {
+                File f = filesExtractor.getDownloadedFile(name);
+                if (f != null) path = f.getAbsolutePath();
+            }
+            s.queue.add(new PlayerState.Item(name, artist, "", t.getImageUrl(), path));
+        }
+        s.queueIndex = currentPlayingIndex;
     }
 }

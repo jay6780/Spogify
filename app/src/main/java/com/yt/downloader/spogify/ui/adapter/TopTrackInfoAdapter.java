@@ -128,7 +128,7 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         tv_track_title.setText(item.getName());
         tv_play_count.setText(item.getPlaycount());
 
-        if (isCurrentPlaying) {
+        if (isCurrentPlaying && isPlaying) {
             tv_track_title.setTextColor(Color.parseColor("#1DB954"));
             tv_rank.setVisibility(View.GONE);
             equalizerView.setVisibility(View.VISIBLE);

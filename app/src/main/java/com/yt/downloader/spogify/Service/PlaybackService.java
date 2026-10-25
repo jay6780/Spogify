@@ -64,16 +64,19 @@ public class PlaybackService extends Service {
         mediaSession.setCallback(new MediaSessionCompat.Callback() {
             @Override
             public void onPlay() {
+                android.util.Log.d("NEXT", "1. onPlay from MediaSession");
                 sendBroadcast(new Intent(ACTION_PLAY).setPackage(getPackageName()));
             }
 
             @Override
             public void onPause() {
+                android.util.Log.d("NEXT", "1. onPause from MediaSession");
                 sendBroadcast(new Intent(ACTION_PAUSE).setPackage(getPackageName()));
             }
 
             @Override
             public void onSkipToNext() {
+                android.util.Log.d("NEXT", "1. onSkipToNext from MediaSession");
                 sendBroadcast(new Intent(ACTION_NEXT).setPackage(getPackageName()));
             }
 
@@ -90,7 +93,6 @@ public class PlaybackService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // ALWAYS call startForeground FIRST before doing any logic
         createChannel();
         if (thumbnail == null) {
             try {
@@ -160,8 +162,10 @@ public class PlaybackService extends Service {
     }
 
     private Class<?> getTargetActivityClass() {
-        if (TrackInfoActivity.class.getName().equals(targetActivityClassName)) {
-            return TrackInfoActivity.class;
+        if (targetActivityClassName != null && !targetActivityClassName.isEmpty()) {
+            try {
+                return Class.forName(targetActivityClassName);
+            } catch (ClassNotFoundException ignored) { }
         }
         return VideoWatchActivity.class;
     }
