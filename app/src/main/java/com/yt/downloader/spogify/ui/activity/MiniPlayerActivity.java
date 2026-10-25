@@ -261,8 +261,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
         miniProgressHandler.removeCallbacks(miniProgressRunnable);
 
-        super.onDestroy();
-
         if (receiverRegistered) {
             unregisterReceiver(controlReceiver);
             receiverRegistered = false;
@@ -272,8 +270,15 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             miniYouTubePlayerView.release();
         }
 
-        if (wasOwner) playbackOwner.clear();
-        if (lastActive.get() == this) lastActive.clear();
+        if (wasOwner) {
+            playbackOwner.clear();
+        }
+
+        if (lastActive.get() == this) {
+            lastActive.clear();
+        }
+
+        super.onDestroy();
     }
 
     // ---------------------------------------------------------------
@@ -691,5 +696,27 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
 
         super.onPause();
+    }
+
+    public static void pauseMiniPlayerForVideo() {
+        MiniPlayerActivity owner = playbackOwner.get();
+        PlayerState s = PlayerState.get();
+
+        if (!s.hasTrack) return;
+
+        if (s.isLocal) {
+            LocalAudioPlayer.getInstance().pause();
+        } else if (owner != null && owner.miniPlayer != null) {
+            owner.miniPlayer.pause();
+        }
+
+        s.isPlaying = false;
+        s.resumeOnRestore = false;
+
+        if (owner != null) {
+            owner.isPlaying = false;
+            owner.updateMiniPlayerPlayPauseIcon();
+            owner.sendStateToService(false);
+        }
     }
 }

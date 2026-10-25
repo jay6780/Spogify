@@ -19,6 +19,8 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.yt.downloader.R;
+import com.yt.downloader.spogify.Utils.LocalAudioPlayer;
+import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.ui.activity.TrackInfoActivity;
 import com.yt.downloader.spogify.ui.activity.VideoWatchActivity;
 
@@ -170,6 +172,22 @@ public class PlaybackService extends Service {
         return VideoWatchActivity.class;
     }
 
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        LocalAudioPlayer.getInstance().stop();
+        PlayerState s = PlayerState.get();
+        s.isPlaying = false;
+        s.hasTrack = false;
+        s.resumeOnRestore = false;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
+        }
+        stopSelf();
+    }
     private void updateMediaSessionActivity() {
         if (mediaSession == null) return;
 
