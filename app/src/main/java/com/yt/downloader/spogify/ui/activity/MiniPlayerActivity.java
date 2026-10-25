@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.Toast;
@@ -64,6 +66,41 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     // ---- queue search (used when Next hits an item that has no videoId yet) ----
     private MusicListPresenter queuePresenter;
     private PlayerState.Item pendingSearchItem;
+
+    private final Handler miniProgressHandler = new Handler(Looper.getMainLooper());
+    private String lastMiniTrackKey = "";
+    private final Runnable miniProgressRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mini != null && PlayerState.get().hasTrack) {
+                PlayerState s = PlayerState.get();
+
+                String trackKey = s.isLocal
+                        ? "local:" + s.localPath
+                        : "online:" + s.videoId;
+
+                if (!TextUtils.equals(lastMiniTrackKey, trackKey)) {
+                    lastMiniTrackKey = trackKey;
+                    syncMiniPlayerInfo();
+                }
+
+                if (s.durationSec > 0) {
+                    int progress = (int) ((s.positionSec / s.durationSec) * 1000);
+                    mini.miniProgressBar.setProgress(Math.max(0, Math.min(1000, progress)));
+                } else {
+                    mini.miniProgressBar.setProgress(0);
+                }
+
+                if (s.isLocal) {
+                    isPlaying = s.isPlaying;
+                    mini.ivMiniPlayPause.setImageResource(
+                            isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+                }
+            }
+
+            miniProgressHandler.postDelayed(this, 500);
+        }
+    };
 
     private final MusicListContract.View searchView = new MusicListContract.View() {
         @Override public void showLoading() { }
@@ -203,20 +240,26 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         lastActive = new WeakReference<>(this);
-        if (mini != null) {
-            attachLocalPlayerListener(); // LocalAudioPlayer has ONE listener, take it back
-            restoreFromState();          // refresh the bar if another screen changed the track
-        }
-    }
 
+        if (mini != null) {
+            if (PlayerState.get().hasTrack && PlayerState.get().isLocal) {
+                playbackOwner = new WeakReference<>(this);
+                isLocalPlayback = true;
+                isPlaying = PlayerState.get().isPlaying;
+            }
+
+            attachLocalPlayerListener();
+            restoreFromState();
+        }
+
+        miniProgressHandler.removeCallbacks(miniProgressRunnable);
+        miniProgressHandler.post(miniProgressRunnable);
+    }
     @Override
     protected void onDestroy() {
         boolean wasOwner = playbackOwner.get() == this;
-        if (wasOwner && isFinishing() && isPlaying) {
-            // our players are about to die, so tell the notification
-            PlayerState.get().isPlaying = false;
-            sendStateToService(false);
-        }
+
+        miniProgressHandler.removeCallbacks(miniProgressRunnable);
 
         super.onDestroy();
 
@@ -224,12 +267,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             unregisterReceiver(controlReceiver);
             receiverRegistered = false;
         }
-        if (isLocalPlayback && wasOwner) {
-            LocalAudioPlayer.getInstance().stop();
-        }
+
         if (miniYouTubePlayerView != null) {
             miniYouTubePlayerView.release();
         }
+
         if (wasOwner) playbackOwner.clear();
         if (lastActive.get() == this) lastActive.clear();
     }
@@ -321,35 +363,45 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         LocalAudioPlayer.getInstance().setPlayerStateListener(new LocalAudioPlayer.PlayerStateListener() {
             @Override
             public void onProgressUpdate(float currentSec, float totalDurSec) {
-                if (!isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+
                 currentSecond = currentSec;
                 totalDuration = totalDurSec;
-                PlayerState.get().positionSec = currentSec;
-                PlayerState.get().durationSec = totalDurSec;
-                if (totalDurSec > 0) {
+
+                PlayerState s = PlayerState.get();
+                s.positionSec = currentSec;
+                s.durationSec = totalDurSec;
+
+                if (mini != null && totalDurSec > 0) {
                     mini.miniProgressBar.setProgress((int) ((currentSec / totalDurSec) * 1000));
                 }
+
                 sendStateToService(isPlaying);
             }
 
             @Override
             public void onStateChanged(boolean playing) {
-                if (!isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+
                 isPlaying = playing;
+                PlayerState.get().isPlaying = playing;
+
                 updateMiniPlayerPlayPauseIcon();
                 sendStateToService(playing);
             }
 
             @Override
             public void onCompletion() {
-                if (!isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+
                 isPlaying = false;
+                PlayerState.get().isPlaying = false;
+
                 updateMiniPlayerPlayPauseIcon();
                 onNextTrackRequested();
             }
         });
     }
-
     // ---------------------------------------------------------------
     // Public playback API
     // ---------------------------------------------------------------
@@ -434,7 +486,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(title);
-        mini.tvMiniArtist.setText(TextUtils.isEmpty(artist) ? "Downloaded Track" : artist);
+        mini.tvMiniArtist.setText("Downloaded Track");
 
         updateMiniPlayerPlayPauseIcon();
         startPlaybackService("local_file", title, "");
@@ -500,23 +552,21 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
         if (isLoadedHere()) {
             // this screen owns playback, just refresh title/icon
-            mini.rlMiniPlayer.setVisibility(View.VISIBLE);
-            mini.tvMiniTitle.setText(s.title);
+            syncMiniPlayerInfo();
+
+            if (s.durationSec > 0) {
+                mini.miniProgressBar.setProgress((int) ((s.positionSec / s.durationSec) * 1000));
+            }
+
             updateMiniPlayerPlayPauseIcon();
             return;
         }
 
         // Someone else played last. Make sure they are not still making sound.
-        MiniPlayerActivity prev = playbackOwner.get();
-        if (isAlive(prev) && prev != this) {
-            prev.pausePlayback();
-        }
-
-        // Nothing is loaded in OUR players, so tapping play will load the saved track.
-        isLocalPlayback = false;
+        isLocalPlayback = s.isLocal;
         currentPlayingVideoId = "";
-        isPlaying = false;
-
+        isPlaying = s.isPlaying;
+        syncMiniPlayerInfo();
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(s.title);
         mini.tvMiniArtist.setText(TextUtils.isEmpty(s.artist)
@@ -533,8 +583,45 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         if (s.durationSec > 0) {
             mini.miniProgressBar.setProgress((int) ((s.positionSec / s.durationSec) * 1000));
         }
-        mini.ivMiniPlayPause.setImageResource(android.R.drawable.ic_media_play);
-        onPlaybackStateUpdated(false);
+        mini.ivMiniPlayPause.setImageResource(
+                isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+        onPlaybackStateUpdated(isPlaying);
+    }
+
+    private void syncMiniPlayerInfo() {
+        if (mini == null) return;
+
+        PlayerState s = PlayerState.get();
+        if (!s.hasTrack) return;
+
+        mini.rlMiniPlayer.setVisibility(View.VISIBLE);
+        mini.tvMiniTitle.setText(s.title);
+
+        if (s.isLocal) {
+            mini.tvMiniArtist.setText("Downloaded Track");
+
+            mini.miniYoutubePlayerView.setVisibility(View.GONE);
+            mini.ivMiniCover.setVisibility(View.VISIBLE);
+
+            Glide.with(this)
+                    .load(R.mipmap.app_logo)
+                    .into(mini.ivMiniCover);
+        } else {
+            mini.tvMiniArtist.setText(TextUtils.isEmpty(s.artist) ? "Music" : s.artist);
+
+            if (!TextUtils.isEmpty(s.thumb)) {
+                mini.ivMiniCover.setVisibility(View.VISIBLE);
+
+                Glide.with(this)
+                        .load(s.thumb)
+                        .placeholder(R.mipmap.app_logo)
+                        .into(mini.ivMiniCover);
+            } else {
+                Glide.with(this)
+                        .load(R.mipmap.app_logo)
+                        .into(mini.ivMiniCover);
+            }
+        }
     }
 
     /** Load the saved track into THIS activity's player and play it. */
@@ -589,12 +676,20 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onPause() {
+        miniProgressHandler.removeCallbacks(miniProgressRunnable);
+
         if (playbackOwner.get() == this && isFinishing() && isPlaying) {
             PlayerState s = PlayerState.get();
             s.positionSec = currentSecond;
-            s.resumeOnRestore = true;   // the screen below should continue playing
-            pausePlayback();
+
+            if (isLocalPlayback) {
+                s.resumeOnRestore = false;
+            } else {
+                s.resumeOnRestore = true;
+                pausePlayback();
+            }
         }
+
         super.onPause();
     }
 }

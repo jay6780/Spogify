@@ -44,7 +44,8 @@ import com.yt.downloader.spogify.mvp.presenter.MusicListPresenter;
 
 import java.util.ArrayList;
 import java.util.List;
-
+import com.yt.downloader.spogify.Utils.LocalAudioPlayer;
+import com.yt.downloader.spogify.Utils.PlayerState;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function0;
 
@@ -97,6 +98,10 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
         super.onCreate(savedInstanceState);
         binding = ActivityVideoWatchBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        if (PlayerState.get().isLocal && PlayerState.get().isPlaying) {
+            LocalAudioPlayer.getInstance().pause();
+            PlayerState.get().isPlaying = false;
+        }
         videoId = getIntent().getStringExtra("videoId");
         title = getIntent().getStringExtra("title");
         tumbnail = getIntent().getStringExtra("tumbnail");
@@ -231,6 +236,10 @@ public class VideoWatchActivity extends AppCompatActivity implements MusicListCo
     }
 
     private void startPlayer(String videoId, String title, String tumbnail) {
+        if (PlayerState.get().isLocal && PlayerState.get().isPlaying) {
+            LocalAudioPlayer.getInstance().pause();
+            PlayerState.get().isPlaying = false;
+        }
         currentVideoId = videoId;
         currentSecond = 0f;
         totalDurationSec = 0f;
