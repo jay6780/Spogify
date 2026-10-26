@@ -226,7 +226,7 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
     public void showError(String error) {
         if (!mainDestroyed) {
 //            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
-            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
+//            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
         }
     }
 

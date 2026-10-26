@@ -1,5 +1,7 @@
 package com.yt.downloader.spogify.ui.activity;
 
+import static android.widget.Toast.LENGTH_SHORT;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -91,6 +93,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private String ArtistName = "";
     private boolean mainDestroyed = false;
     private String currentLyricsTrackKey = "";
+    private boolean isDownload = false;
     private final ActivityResultLauncher<String> storagePermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
@@ -98,7 +101,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
                         startDownloadFlow(currentDownloadTrack);
                     }
                 } else {
-                    Toast.makeText(this, "Permission required to save audio to Music folder", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Permission required to save audio to Music folder", LENGTH_SHORT).show();
                 }
             });
 
@@ -175,8 +178,8 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         updateFollowButtonUI();
         hud = KProgressHUD.create(this)
-                .setStyle(KProgressHUD.Style.ANNULAR_DETERMINATE)
-                .setLabel("Please wait");;
+                .setStyle(KProgressHUD.Style.SPIN_INDETERMINATE)
+                .setLabel("Please wait");
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
         lyricsPresenter = new LyricsPresenter(this);
@@ -187,6 +190,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
             loadFavoriteTracksOnly();
         } else {
             initBigImage(artistName);
+            isDownload = false;
             trackInfoPresenter.getTrackArtistQuery(AppConstant.TopTracksInfo, artistName, AppConstant.Api_Key, "json");
         }
 
@@ -310,12 +314,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if (isFollowed) {
             boolean success = dbHelper.unfollowArtist(artistName);
             if (success) {
-                Toast.makeText(this, "Unfollowed " + artistName, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Unfollowed " + artistName, LENGTH_SHORT).show();
             }
         } else {
             boolean success = dbHelper.followArtist(artistName, currentArtistImageUrl, totalListenersText);
             if (success) {
-                Toast.makeText(this, "Following " + artistName, Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Following " + artistName, LENGTH_SHORT).show();
             }
         }
         updateFollowButtonUI();
@@ -341,13 +345,14 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
                 } else {
 
-                    Toast.makeText(this, "Audio file not found", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Audio file not found", LENGTH_SHORT).show();
 
                 }
             } else {
 
                 isDownloadingProcess = false;
                 String searchQuery = buildSearchQuery(track);
+                isDownload = true;
                 musicListPresenter.getSearchListQuery(searchQuery);
 
             }
@@ -394,6 +399,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
         updateBigHeaderImage(nextTrack);
         if (isDownloaded || isFromDownload) {
+            isDownload = true;
             File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
             if (localAudio != null) playLocalAudioFile(localAudio, nextTrack.getName());
         } else {
@@ -417,6 +423,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private void startDownloadFlow(TrackInfoBean.Track track) {
         isDownloadingProcess = true;
         currentDownloadTrack = track;
+        isDownload = true;
         String searchQuery = buildSearchQuery(track);
         musicListPresenter.getSearchListQuery(searchQuery);
     }
@@ -680,7 +687,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private void onFabPlayClicked() {
 
         if (currentTrackList == null || currentTrackList.isEmpty()) {
-            Toast.makeText(this, "No tracks available to play", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "No tracks available to play", LENGTH_SHORT).show();
             return;
         }
 
@@ -722,7 +729,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 }
 
             } else {
-                Toast.makeText(this, "Downloaded audio file not found", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Downloaded audio file not found", LENGTH_SHORT).show();
             }
 
             return;
@@ -748,8 +755,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showLoading() {
-        if(hud !=null && !hud.isShowing()){
-            hud.show();
+        if(!isDownload){
+            if(hud !=null && !hud.isShowing()){
+                hud.show();
+            }
         }
     }
 
@@ -773,7 +782,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void getLyricsSuccess(List<LyricsBean> lyricsList) {
-        hud.setLabel("Getting lyrics");
         if (mainDestroyed) {
             return;
         }
@@ -816,7 +824,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 playVideoInMiniPlayer(item.getId(), item.getTitle(), item.getThumbnail());
             }
         } else {
-            Toast.makeText(this, "Track not found on YouTube", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Track not found on YouTube", LENGTH_SHORT).show();
         }
     }
 
@@ -827,7 +835,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
             String downloadUrl = mp3downloadBean.getDownloadUrl();
             String trackName = currentDownloadTrack != null ? currentDownloadTrack.getName() : "downloaded_track";
 
-            Toast.makeText(this, "Starting download for: " + trackName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Starting download for: " + trackName, LENGTH_SHORT).show();
 
             DownloadTrackModel.downloadMp3File(this, downloadUrl, trackName, new DownloadTrackModel.DownloadCallback() {
                 @Override
@@ -856,13 +864,13 @@ public class TrackInfoActivity extends MiniPlayerActivity
                             trackInfoAdapter.updateDownloadProgress(trackName, 100);
                         }
                         isDownloadingProcess = false;
-                        Toast.makeText(TrackInfoActivity.this, "Download Error: " + error, Toast.LENGTH_SHORT).show();
+                        Toast.makeText(TrackInfoActivity.this, "Download Error: " + error, LENGTH_SHORT).show();
                     });
                 }
             });
         } else {
             isDownloadingProcess = false;
-            Toast.makeText(this, "Failed to resolve download link", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Failed to resolve download link", LENGTH_SHORT).show();
         }
     }
 
@@ -1020,6 +1028,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         clearCurrentLyrics();
 //        Log.d("LYRICS_DEBUG", "Searching music: " + musicName + " | Artist: " + ArtistName);
         if (lyricsPresenter != null && !TextUtils.isEmpty(musicName)) {
+            isDownload = false;
             lyricsPresenter.getLyrics(musicName);
         }
     }
@@ -1072,6 +1081,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if (TextUtils.isEmpty(syncedLyrics)) {
 
             clearCurrentLyrics();
+            Toast.makeText(getApplicationContext(),"No Lyrics found: "+musicTitle, LENGTH_SHORT).show();
 
 //            Log.d("LYRICS_DEBUG", "No synced lyrics for " + musicTitle);
             return;

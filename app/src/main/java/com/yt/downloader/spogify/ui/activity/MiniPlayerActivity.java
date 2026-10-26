@@ -387,7 +387,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         mini.ivMiniNext.setOnClickListener(v -> {
             onNextTrackRequested();
         });
-
         miniYouTubePlayerView.initialize(new AbstractYouTubePlayerListener() {
             @Override
             public void onReady(@NonNull YouTubePlayer youTubePlayer) {
