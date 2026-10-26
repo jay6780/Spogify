@@ -1,5 +1,6 @@
 package com.yt.downloader.spogify.mvp.api;
 
+import com.yt.downloader.spogify.mvp.bean.LyricsBean;
 import com.yt.downloader.spogify.mvp.bean.Mp3downloadBean;
 import com.yt.downloader.spogify.mvp.bean.OpmBean;
 import com.yt.downloader.spogify.mvp.bean.RAndBbean;
@@ -8,6 +9,8 @@ import com.yt.downloader.spogify.mvp.bean.TopArtistBean;
 import com.yt.downloader.spogify.mvp.bean.TopTrackBean;
 import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
+
+import java.util.List;
 
 import io.reactivex.rxjava3.core.Observable;
 import retrofit2.http.GET;
@@ -67,4 +70,8 @@ public interface YoutubeApi {
             @Query("api_key") String apiKey,
             @Query("format") String format
     );
+
+    @GET("api/search")
+    Observable<List<LyricsBean>> getLyrics(
+            @Query("q") String q);
 }

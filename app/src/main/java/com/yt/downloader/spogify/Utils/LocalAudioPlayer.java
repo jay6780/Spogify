@@ -1,3 +1,4 @@
+
 package com.yt.downloader.spogify.Utils;
 
 import android.media.AudioAttributes;
@@ -35,79 +36,136 @@ public class LocalAudioPlayer {
     }
 
     public void playFile(File audioFile) {
-        if (audioFile == null || !audioFile.exists()) return;
+        if (audioFile == null || !audioFile.exists() || !audioFile.isFile()) return;
 
         try {
             stop();
 
             currentPlayingPath = audioFile.getAbsolutePath();
             mediaPlayer = new MediaPlayer();
+
             mediaPlayer.setAudioAttributes(
                     new AudioAttributes.Builder()
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
             );
+
             mediaPlayer.setDataSource(audioFile.getAbsolutePath());
             mediaPlayer.prepare();
-            mediaPlayer.start();
-
-            if (listener != null) {
-                listener.onStateChanged(true);
-            }
-
-            startProgressTracker();
 
             mediaPlayer.setOnCompletionListener(mp -> {
                 stopProgressTracker();
+
                 if (listener != null) {
                     listener.onStateChanged(false);
                     listener.onCompletion();
                 }
             });
 
+            mediaPlayer.start();
+
+            if (listener != null) {
+                listener.onStateChanged(true);
+            }
+
+            startProgressTracker();
+
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
+            stop();
 
-    public void togglePlayPause() {
-        if (mediaPlayer == null) return;
-        if (mediaPlayer.isPlaying()) {
-            pause();
-        } else {
-            resume();
-        }
-    }
-
-    public void pause() {
-        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-            mediaPlayer.pause();
-            stopProgressTracker();
             if (listener != null) {
                 listener.onStateChanged(false);
             }
         }
     }
 
-    public void resume() {
-        if (mediaPlayer != null && !mediaPlayer.isPlaying()) {
-            mediaPlayer.start();
-            startProgressTracker();
-            if (listener != null) {
-                listener.onStateChanged(true);
+    public void togglePlayPause() {
+        if (mediaPlayer == null) return;
+
+        try {
+            if (mediaPlayer.isPlaying()) {
+                pause();
+            } else {
+                resume();
             }
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void pause() {
+        if (mediaPlayer == null) return;
+
+        try {
+            if (mediaPlayer.isPlaying()) {
+                mediaPlayer.pause();
+                stopProgressTracker();
+
+                notifyProgress();
+
+                if (listener != null) {
+                    listener.onStateChanged(false);
+                }
+            }
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void resume() {
+        if (mediaPlayer == null) return;
+
+        try {
+            if (!mediaPlayer.isPlaying()) {
+                mediaPlayer.start();
+
+                if (listener != null) {
+                    listener.onStateChanged(true);
+                }
+
+                startProgressTracker();
+            }
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
         }
     }
 
     public void seekTo(long positionMs) {
-        if (mediaPlayer != null) {
-            mediaPlayer.seekTo((int) positionMs);
+        if (mediaPlayer == null) return;
+
+        try {
+            int duration = mediaPlayer.getDuration();
+
+            int target = (int) Math.max(
+                    0,
+                    Math.min(positionMs, duration)
+            );
+
+            MediaPlayer player = mediaPlayer;
+
+            player.setOnSeekCompleteListener(mp -> {
+                if (mp == mediaPlayer) {
+                    notifyProgress();
+                }
+            });
+
+            player.seekTo(target);
+
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
         }
     }
 
     public boolean isPlaying() {
-        return mediaPlayer != null && mediaPlayer.isPlaying();
+        if (mediaPlayer == null) return false;
+
+        try {
+            return mediaPlayer.isPlaying();
+        } catch (IllegalStateException e) {
+            return false;
+        }
     }
 
     public String getCurrentPlayingPath() {
@@ -116,29 +174,51 @@ public class LocalAudioPlayer {
 
     public void stop() {
         stopProgressTracker();
+
         if (mediaPlayer != null) {
-            if (mediaPlayer.isPlaying()) {
-                mediaPlayer.stop();
-            }
-            mediaPlayer.release();
+            MediaPlayer oldPlayer = mediaPlayer;
             mediaPlayer = null;
-            currentPlayingPath = "";
+
+            try {
+                oldPlayer.release();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        currentPlayingPath = "";
+    }
+
+    private void notifyProgress() {
+        if (mediaPlayer == null || listener == null) return;
+
+        try {
+            float currentSec = mediaPlayer.getCurrentPosition() / 1000f;
+            float totalDurationSec = mediaPlayer.getDuration() / 1000f;
+
+            listener.onProgressUpdate(currentSec, totalDurationSec);
+
+        } catch (IllegalStateException e) {
+            e.printStackTrace();
         }
     }
 
     private void startProgressTracker() {
         stopProgressTracker();
+
         progressRunnable = new Runnable() {
             @Override
             public void run() {
-                if (mediaPlayer != null && mediaPlayer.isPlaying() && listener != null) {
-                    float currentSec = mediaPlayer.getCurrentPosition() / 1000f;
-                    float totalDurationSec = mediaPlayer.getDuration() / 1000f;
-                    listener.onProgressUpdate(currentSec, totalDurationSec);
-                    handler.postDelayed(this, 500);
+                if (mediaPlayer == null) return;
+
+                notifyProgress();
+
+                if (mediaPlayer != null && isPlaying()) {
+                    handler.postDelayed(this, 100);
                 }
             }
         };
+
         handler.post(progressRunnable);
     }
 

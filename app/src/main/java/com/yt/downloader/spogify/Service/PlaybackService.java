@@ -34,6 +34,7 @@ public class PlaybackService extends Service {
     public static final String ACTION_PLAY = "com.yt.downloader.action.PLAY";
     public static final String ACTION_PAUSE = "com.yt.downloader.action.PAUSE";
     public static final String ACTION_NEXT = "com.yt.downloader.action.NEXT";
+    public static final String ACTION_PREVIOUS = "com.yt.downloader.action.PREVIOUS";
     public static final String ACTION_SEEK = "com.yt.downloader.action.SEEK";
 
     public static final String EXTRA_IS_PLAYING = "isPlaying";
@@ -82,6 +83,14 @@ public class PlaybackService extends Service {
                 sendBroadcast(new Intent(ACTION_NEXT).setPackage(getPackageName()));
             }
 
+            @Override
+            public void onSkipToPrevious() {
+                android.util.Log.d("PREVIOUS", "Previous from MediaSession");
+
+                sendBroadcast(
+                        new Intent(ACTION_PREVIOUS).setPackage(getPackageName())
+                );
+            }
             @Override
             public void onSeekTo(long pos) {
                 Intent intent = new Intent(ACTION_SEEK).setPackage(getPackageName());
@@ -230,6 +239,7 @@ public class PlaybackService extends Service {
                 .setActions(PlaybackStateCompat.ACTION_PLAY
                         | PlaybackStateCompat.ACTION_PAUSE
                         | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                        | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
                         | PlaybackStateCompat.ACTION_SEEK_TO)
                 .setState(state, currentPositionMs, isPlaying ? 1.0f : 0.0f)
@@ -241,47 +251,36 @@ public class PlaybackService extends Service {
     private Notification buildNotification() {
         Class<?> targetActivity = getTargetActivityClass();
 
-        Intent open = new Intent(this, targetActivity)
-                .putExtra("videoId", videoId)
-                .putExtra("title", title)
-                .putExtra("thumbnail", musicPic)
-                .putExtra("tumbnail", musicPic)
-                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        Intent open = new Intent(this, targetActivity).putExtra("videoId", videoId).putExtra("title", title).putExtra("thumbnail", musicPic).putExtra("tumbnail", musicPic).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
 
-        PendingIntent contentPi = PendingIntent.getActivity(
-                this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+        PendingIntent contentPi = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+
+        Intent previous = new Intent(ACTION_PREVIOUS).setPackage(getPackageName());
+
+        PendingIntent previousPi = PendingIntent.getBroadcast(this, 3, previous, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
         String toggleAction = isPlaying ? ACTION_PAUSE : ACTION_PLAY;
+
         Intent toggle = new Intent(toggleAction).setPackage(getPackageName());
-        PendingIntent togglePi = PendingIntent.getBroadcast(
-                this, 1, toggle, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+
+        PendingIntent togglePi = PendingIntent.getBroadcast(this, 1, toggle, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
         Intent next = new Intent(ACTION_NEXT).setPackage(getPackageName());
-        PendingIntent nextPi = PendingIntent.getBroadcast(
-                this, 2, next, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
 
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.mipmap.app_logo)
-                .setContentTitle(title)
-                .setContentText("Spogify")
-                .setLargeIcon(thumbnail)
-                .setContentIntent(contentPi)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .addAction(
-                        isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-                        isPlaying ? "Pause" : "Play",
-                        togglePi)
+        PendingIntent nextPi = PendingIntent.getBroadcast(this, 2, next, PendingIntent.FLAG_UPDATE_CURRENT | immutableFlag());
+
+        return new NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(R.mipmap.app_logo).setContentTitle(title).setContentText("Spogify").setLargeIcon(thumbnail).setContentIntent(contentPi).setOngoing(true).setOnlyAlertOnce(true).setPriority(NotificationCompat.PRIORITY_MAX).setCategory(NotificationCompat.CATEGORY_TRANSPORT).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+                .addAction(android.R.drawable.ic_media_previous, "Previous", previousPi)
+
+                .addAction(isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play, isPlaying ? "Pause" : "Play", togglePi)
+
                 .addAction(android.R.drawable.ic_media_next, "Next", nextPi)
-                .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                        .setMediaSession(mediaSession.getSessionToken())
-                        .setShowActionsInCompactView(0, 1))
+
+                .setStyle(new androidx.media.app.NotificationCompat.MediaStyle().setMediaSession(mediaSession.getSessionToken()).setShowActionsInCompactView(0, 1, 2))
+
                 .build();
     }
-
     private void updateNotification() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) nm.notify(NOTIF_ID, buildNotification());

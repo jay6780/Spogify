@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rl_mini_player"
     android:layout_width="match_parent"
-    android:layout_height="85dp"
+    android:layout_height="wrap_content"
     android:layout_margin="8dp"
     android:background="@drawable/bg_mini_player"
     android:elevation="8dp"
@@ -12,11 +12,27 @@
     android:focusable="true"
     android:visibility="gone">
 
+    <TextView
+        android:id="@+id/tv_mini_lyrics"
+        android:layout_width="match_parent"
+        android:layout_height="20dp"
+        android:layout_alignParentTop="true"
+        android:gravity="center"
+        android:textColor="#B3B3B3"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:visibility="gone"
+        app:autoSizeTextType="uniform"
+        app:autoSizeMinTextSize="9sp"
+        app:autoSizeMaxTextSize="13sp"
+        app:autoSizeStepGranularity="1sp" />
+
     <FrameLayout
         android:id="@+id/fl_mini_player_container"
-        android:layout_width="52dp"
-        android:layout_height="52dp"
-        android:layout_centerVertical="true">
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_below="@id/tv_mini_lyrics"
+        android:layout_marginTop="2dp">
 
         <com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
             android:id="@+id/mini_youtube_player_view"
@@ -37,17 +53,66 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackground" />
+
     </FrameLayout>
 
     <LinearLayout
+        android:id="@+id/ll_mini_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="48dp"
+        android:layout_alignParentEnd="true"
+        android:layout_below="@id/tv_mini_lyrics"
+        android:layout_marginTop="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/iv_mini_previous"
+            android:layout_width="36dp"
+            android:layout_height="40dp"
+            android:padding="7dp"
+            android:src="@android:drawable/ic_media_previous"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Previous track"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <ImageView
+            android:id="@+id/iv_mini_play_pause"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:padding="7dp"
+            android:src="@android:drawable/ic_media_pause"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Play or pause"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <ImageView
+            android:id="@+id/iv_mini_next"
+            android:layout_width="36dp"
+            android:layout_height="40dp"
+            android:padding="7dp"
+            android:src="@android:drawable/ic_media_next"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Next track"
+            android:clickable="true"
+            android:focusable="true" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/ll_hide"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_centerVertical="true"
-        android:layout_toStartOf="@id/iv_mini_play_pause"
+        android:layout_height="48dp"
+        android:layout_below="@id/tv_mini_lyrics"
+        android:layout_marginTop="2dp"
         android:layout_toEndOf="@id/fl_mini_player_container"
+        android:layout_toStartOf="@id/ll_mini_controls"
+        android:gravity="center_vertical"
         android:orientation="vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:paddingStart="10dp"
+        android:paddingEnd="4dp">
 
         <TextView
             android:id="@+id/tv_mini_title"
@@ -67,25 +132,16 @@
             android:maxLines="1"
             android:textColor="#B3B3B3"
             android:textSize="12sp" />
-    </LinearLayout>
 
-    <ImageView
-        android:id="@+id/iv_mini_play_pause"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="8dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@android:drawable/ic_media_pause" />
+    </LinearLayout>
 
     <ProgressBar
         android:id="@+id/mini_progress_bar"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_marginTop="5dp"
         android:layout_height="3dp"
-        android:layout_below="@+id/fl_mini_player_container"
+        android:layout_below="@id/fl_mini_player_container"
+        android:layout_marginTop="4dp"
         android:max="1000"
         android:progress="0"
         android:progressDrawable="@drawable/bg_mini_player_progress" />

@@ -24,6 +24,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTube
 import com.yt.downloader.R;
 import com.yt.downloader.databinding.LayoutMiniPlayerBinding;
 import com.yt.downloader.spogify.Service.PlaybackService;
+import com.yt.downloader.spogify.Utils.KaraokeLyricsController;
 import com.yt.downloader.spogify.Utils.LocalAudioPlayer;
 import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
@@ -38,6 +39,9 @@ import java.lang.ref.WeakReference;
  * Subclasses inflate their own layout, then call bindMiniPlayer(...).
  */
 public abstract class MiniPlayerActivity extends AppCompatActivity {
+
+    // Karaoke controller for the mini player lyrics view
+    protected KaraokeLyricsController karaokeLyricsController;
 
     // Which activity is actually playing right now / was resumed last.
     private static final WeakReference<MiniPlayerActivity> NONE = new WeakReference<>(null);
@@ -75,6 +79,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             if (mini != null && PlayerState.get().hasTrack) {
                 PlayerState s = PlayerState.get();
 
+                // Tick karaoke lyrics controller on every progress loop
+                if (karaokeLyricsController != null && karaokeLyricsController.hasLyrics()) {
+                    karaokeLyricsController.tick(s.positionSec, s.isPlaying);
+                }
+
                 String trackKey = s.isLocal
                         ? "local:" + s.localPath
                         : "online:" + s.videoId;
@@ -104,9 +113,17 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     };
 
     private final MusicListContract.View searchView = new MusicListContract.View() {
-        @Override public void showLoading() { }
-        @Override public void showError(String error) { }
-        @Override public void hideLoading() { }
+        @Override
+        public void showLoading() {
+        }
+
+        @Override
+        public void showError(String error) {
+        }
+
+        @Override
+        public void hideLoading() {
+        }
 
         @Override
         public void getSearchList(YoutubeSearchBean bean) {
@@ -129,7 +146,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     // Hooks for subclasses
     // ---------------------------------------------------------------
 
-    /** Next pressed / track ended. Default: advance the shared queue. */
+    /**
+     * Next pressed / track ended. Default: advance the shared queue.
+     */
     public void onNextTrackRequested() {
         PlayerState s = PlayerState.get();
         android.util.Log.d("NEXT", "owner=" + getClass().getSimpleName()
@@ -137,14 +156,39 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         playSharedQueueAt(s.queueIndex + 1);
     }
 
-    /** Called whenever play/pause state changes so the subclass can update its UI. */
-    public void onPlaybackStateUpdated(boolean playing) { }
+    public void chooseNextLyrics() {
+    }
 
-    /** Class name used by the notification to reopen the right screen. */
+    /**
+     * Called whenever play/pause state changes so the subclass can update its UI.
+     */
+    public void onPlaybackStateUpdated(boolean playing) {
+    }
+
+    /**
+     * Class name used by the notification to reopen the right screen.
+     */
     public String getTargetActivityName() {
         return getClass().getName();
     }
-    public void onTrackChanged() { }
+
+    // Updated hook to manage lyrics visibility and lines
+    public void onTrackChanged() {
+        PlayerState s = PlayerState.get();
+        if (mini != null && mini.tvMiniLyrics != null) {
+            if (s.parsedLyrics != null && !s.parsedLyrics.isEmpty()) {
+                mini.tvMiniLyrics.setVisibility(View.VISIBLE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.setLines(s.parsedLyrics);
+                }
+            } else {
+                mini.tvMiniLyrics.setVisibility(View.GONE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.clear();
+                }
+            }
+        }
+    }
 
     // ---------------------------------------------------------------
     // Ownership helpers
@@ -154,13 +198,17 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         return a != null && !a.isDestroyed();
     }
 
-    /** True if something is loaded in THIS activity's players and this activity owns playback. */
+    /**
+     * True if something is loaded in THIS activity's players and this activity owns playback.
+     */
     protected boolean isLoadedHere() {
         return playbackOwner.get() == this
                 && (isLocalPlayback || !TextUtils.isEmpty(currentPlayingVideoId));
     }
 
-    /** Only one activity reacts to notification buttons. */
+    /**
+     * Only one activity reacts to notification buttons.
+     */
     private boolean isBroadcastTarget() {
         MiniPlayerActivity owner = playbackOwner.get();
         if (isAlive(owner)) return owner == this;
@@ -169,7 +217,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         return true;
     }
 
-    /** Called right before this activity starts playing: pause whoever played before. */
+    /**
+     * Called right before this activity starts playing: pause whoever played before.
+     */
     private void claimPlayback() {
         MiniPlayerActivity prev = playbackOwner.get();
         if (isAlive(prev) && prev != this) {
@@ -202,6 +252,8 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 }
             } else if (PlaybackService.ACTION_PAUSE.equals(action)) {
                 if (isLoadedHere()) pausePlayback();
+            } else if (PlaybackService.ACTION_PREVIOUS.equals(action)) {
+                onPreviousTrackRequested();
             } else if (PlaybackService.ACTION_NEXT.equals(action)) {
                 onNextTrackRequested();
             } else if (PlaybackService.ACTION_SEEK.equals(action)) {
@@ -230,9 +282,14 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         // No layout here. The subclass calls setContentView(...) and then bindMiniPlayer(...).
     }
 
-    /** Call once after setContentView with the included mini player layout binding. */
+    /**
+     * Call once after setContentView with the included mini player layout binding.
+     */
     public void bindMiniPlayer(LayoutMiniPlayerBinding miniBinding) {
         this.mini = miniBinding;
+        if (mini.tvMiniLyrics != null) {
+            karaokeLyricsController = new KaraokeLyricsController(mini.tvMiniLyrics);
+        }
         initMiniPlayer();
         registerControlReceiver();
         restoreFromState();
@@ -257,6 +314,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         miniProgressHandler.removeCallbacks(miniProgressRunnable);
         miniProgressHandler.post(miniProgressRunnable);
     }
+
     @Override
     protected void onDestroy() {
         boolean wasOwner = playbackOwner.get() == this;
@@ -295,6 +353,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         filter.addAction(PlaybackService.ACTION_NEXT);
         filter.addAction(PlaybackService.ACTION_SEEK);
         filter.addAction(PlaybackService.ACTION_STATE);
+        filter.addAction(PlaybackService.ACTION_PREVIOUS);
         ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
     }
@@ -310,6 +369,24 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 .controls(0)
                 .autoplay(1)
                 .build();
+        mini.llHide.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean isVisible = mini.tvMiniLyrics.getVisibility() == View.VISIBLE;
+                mini.tvMiniLyrics.setVisibility(isVisible ? View.GONE : View.VISIBLE);
+            }
+        });
+        mini.ivMiniPrevious.setOnClickListener(v -> {
+            onPreviousTrackRequested();
+        });
+
+        mini.ivMiniPlayPause.setOnClickListener(v -> {
+            togglePlayPause();
+        });
+
+        mini.ivMiniNext.setOnClickListener(v -> {
+            onNextTrackRequested();
+        });
 
         miniYouTubePlayerView.initialize(new AbstractYouTubePlayerListener() {
             @Override
@@ -325,14 +402,25 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             @Override
             public void onCurrentSecond(@NonNull YouTubePlayer youTubePlayer, float second) {
                 if (isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
+
                 currentSecond = second;
-                PlayerState.get().positionSec = second;
+
+                PlayerState s = PlayerState.get();
+                s.positionSec = second;
+
                 if (totalDuration > 0) {
-                    mini.miniProgressBar.setProgress((int) ((second / totalDuration) * 1000));
+                    mini.miniProgressBar.setProgress(
+                            (int) ((second / totalDuration) * 1000)
+                    );
                 }
+
+                if (karaokeLyricsController != null
+                        && karaokeLyricsController.hasLyrics()) {
+                    karaokeLyricsController.tick(second, s.isPlaying);
+                }
+
                 sendStateToService(isPlaying);
             }
-
             @Override
             public void onVideoDuration(@NonNull YouTubePlayer youTubePlayer, float duration) {
                 if (isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
@@ -363,7 +451,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             }
         }, options);
 
-        mini.ivMiniPlayPause.setOnClickListener(v -> togglePlayPause());
 
         attachLocalPlayerListener();
     }
@@ -372,7 +459,10 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         LocalAudioPlayer.getInstance().setPlayerStateListener(new LocalAudioPlayer.PlayerStateListener() {
             @Override
             public void onProgressUpdate(float currentSec, float totalDurSec) {
-                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal
+                        || playbackOwner.get() != MiniPlayerActivity.this) {
+                    return;
+                }
 
                 currentSecond = currentSec;
                 totalDuration = totalDurSec;
@@ -382,7 +472,14 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 s.durationSec = totalDurSec;
 
                 if (mini != null && totalDurSec > 0) {
-                    mini.miniProgressBar.setProgress((int) ((currentSec / totalDurSec) * 1000));
+                    mini.miniProgressBar.setProgress(
+                            (int) ((currentSec / totalDurSec) * 1000)
+                    );
+                }
+
+                if (karaokeLyricsController != null
+                        && karaokeLyricsController.hasLyrics()) {
+                    karaokeLyricsController.tick(currentSec, s.isPlaying);
                 }
 
                 sendStateToService(isPlaying);
@@ -390,7 +487,8 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
             @Override
             public void onStateChanged(boolean playing) {
-                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this)
+                    return;
 
                 isPlaying = playing;
                 PlayerState.get().isPlaying = playing;
@@ -401,7 +499,8 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
             @Override
             public void onCompletion() {
-                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this) return;
+                if (!PlayerState.get().isLocal || playbackOwner.get() != MiniPlayerActivity.this)
+                    return;
 
                 isPlaying = false;
                 PlayerState.get().isPlaying = false;
@@ -411,16 +510,18 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             }
         });
     }
+
     // ---------------------------------------------------------------
     // Public playback API
     // ---------------------------------------------------------------
-
 
     public void playOnline(String videoId, String title, String artist, String thumbUrl) {
         playOnline(videoId, title, artist, thumbUrl, 0f);
     }
 
-    /** Play a YouTube video in the mini player. */
+    /**
+     * Play a YouTube video in the mini player.
+     */
     public void playOnline(String videoId, String title, String artist, String thumbUrl, float startSec) {
         claimPlayback();
 
@@ -445,7 +546,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         s.artist = artist == null ? "" : artist;
         s.thumb = thumbUrl == null ? "" : thumbUrl;
         s.positionSec = startSec;
-
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(title);
         mini.tvMiniArtist.setText(TextUtils.isEmpty(artist) ? "Music" : artist);
@@ -462,9 +562,17 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         startPlaybackService(videoId, title, thumbUrl);
     }
 
-    /** Play a downloaded audio file in the mini player. */
+    /**
+     * Play a downloaded audio file in the mini player.
+     */
     public void playLocal(File file, String title, String artist) {
-        claimPlayback(); // pauses the previous owner BEFORE we start (LocalAudioPlayer is shared)
+
+        if (file == null || !file.exists() || !file.isFile()) {
+            Toast.makeText(this, "Audio file not found", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        claimPlayback();
 
         isLocalPlayback = true;
         currentPlayingVideoId = "";
@@ -480,29 +588,43 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         s.artist = artist == null ? "" : artist;
         s.thumb = "";
         s.positionSec = 0f;
+        s.durationSec = 0f;
+        s.isPlaying = false;
 
         if (miniPlayer != null) {
             miniPlayer.pause();
         }
+
         registerControlReceiver();
         attachLocalPlayerListener();
 
+
         mini.miniYoutubePlayerView.setVisibility(View.GONE);
         mini.ivMiniCover.setVisibility(View.VISIBLE);
-        Glide.with(this).load(R.mipmap.app_logo).into(mini.ivMiniCover);
 
-        LocalAudioPlayer.getInstance().playFile(file);
-        isPlaying = true;
+        Glide.with(this)
+                .load(R.mipmap.app_logo)
+                .into(mini.ivMiniCover);
 
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(title);
         mini.tvMiniArtist.setText("Downloaded Track");
+        mini.miniProgressBar.setProgress(0);
 
+        isPlaying = false;
         updateMiniPlayerPlayPauseIcon();
+
+        android.util.Log.d("LOCAL_PLAYER", "Playing file: " + file.getAbsolutePath());
+        android.util.Log.d("LOCAL_PLAYER", "File size: " + file.length());
+
+        LocalAudioPlayer.getInstance().playFile(file);
+
         startPlaybackService("local_file", title, "");
     }
 
-    /** Play item {@code index} of the shared queue (wraps around). */
+    /**
+     * Play item {@code index} of the shared queue (wraps around).
+     */
     public void playSharedQueueAt(int index) {
         PlayerState s = PlayerState.get();
         int n = s.queue.size();
@@ -522,22 +644,23 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
     }
 
-
-
-
-
-    /** Toggle play / pause for whichever source is active. */
+    /**
+     * Toggle play / pause for whichever source is active.
+     */
     public void togglePlayPause() {
         if (!isLoadedHere() && resumeFromState()) return;
 
         if (isLocalPlayback) {
             LocalAudioPlayer.getInstance().togglePlayPause();
         } else if (miniPlayer != null) {
-            if (isPlaying) miniPlayer.pause(); else miniPlayer.play();
+            if (isPlaying) miniPlayer.pause();
+            else miniPlayer.play();
         }
     }
 
-    /** Pause whichever source is active. */
+    /**
+     * Pause whichever source is active.
+     */
     public void pausePlayback() {
         if (isLocalPlayback) {
             LocalAudioPlayer.getInstance().pause();
@@ -546,7 +669,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
     }
 
-    /** True if the online player is loaded with something that can be resumed. */
+    /**
+     * True if the online player is loaded with something that can be resumed.
+     */
     public boolean hasOnlineTrackLoaded() {
         return miniPlayer != null && !TextUtils.isEmpty(currentPlayingVideoId);
     }
@@ -555,17 +680,33 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     // Restore / resume across screens
     // ---------------------------------------------------------------
 
-    /** Sync this screen's mini player with the shared PlayerState. */
+    /**
+     * Sync this screen's mini player with the shared PlayerState.
+     */
     public void restoreFromState() {
-
         PlayerState s = PlayerState.get();
+
+        // Sync lyrics visibility on restore
+        if (mini != null && mini.tvMiniLyrics != null) {
+            if (s.parsedLyrics != null && !s.parsedLyrics.isEmpty()) {
+                mini.tvMiniLyrics.setVisibility(View.VISIBLE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.setLines(s.parsedLyrics);
+                }
+            } else {
+                mini.tvMiniLyrics.setVisibility(View.GONE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.clear();
+                }
+            }
+        }
+
         if (mini == null || !s.hasTrack) return;
         if (s.resumeOnRestore && !isLoadedHere()) {
             s.resumeOnRestore = false;
             if (resumeFromState()) return;
         }
         if (isLoadedHere()) {
-            // this screen owns playback, just refresh title/icon
             syncMiniPlayerInfo();
 
             if (s.durationSec > 0) {
@@ -576,7 +717,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             return;
         }
 
-        // Someone else played last. Make sure they are not still making sound.
         isLocalPlayback = s.isLocal;
         currentPlayingVideoId = "";
         isPlaying = s.isPlaying;
@@ -608,6 +748,20 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         PlayerState s = PlayerState.get();
         if (!s.hasTrack) return;
 
+        if (mini != null && mini.tvMiniLyrics != null) {
+            if (s.parsedLyrics != null && !s.parsedLyrics.isEmpty()) {
+                mini.tvMiniLyrics.setVisibility(View.VISIBLE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.setLines(s.parsedLyrics);
+                }
+            } else {
+                mini.tvMiniLyrics.setVisibility(View.GONE);
+                if (karaokeLyricsController != null) {
+                    karaokeLyricsController.clear();
+                }
+            }
+        }
+
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(s.title);
 
@@ -638,7 +792,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
     }
 
-    /** Load the saved track into THIS activity's player and play it. */
+    /**
+     * Load the saved track into THIS activity's player and play it.
+     */
     private boolean resumeFromState() {
         PlayerState s = PlayerState.get();
         if (mini == null || !s.hasTrack) return false;
@@ -729,4 +885,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         }
     }
 
+    public void onPreviousTrackRequested() {
+        PlayerState s = PlayerState.get();
+
+        if (s.queue == null || s.queue.isEmpty()) return;
+
+        playSharedQueueAt(s.queueIndex - 1);
+    }
 }

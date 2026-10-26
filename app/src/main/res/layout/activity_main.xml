@@ -99,7 +99,7 @@
         android:id="@+id/layout_mini_player"
         layout="@layout/layout_mini_player"
         android:layout_width="match_parent"
-        android:layout_height="85dp"
+        android:layout_height="wrap_content"
         android:layout_above="@id/ll_tab"
         android:layout_margin="8dp" />
 

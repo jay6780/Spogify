@@ -1,12 +1,17 @@
 package com.yt.downloader.spogify.ui.activity;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -26,17 +31,21 @@ import com.yt.downloader.spogify.Retrofit.AppConstant;
 import com.yt.downloader.spogify.Utils.DownloadTrackModel;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FollowDatabaseHelper;
+import com.yt.downloader.spogify.Utils.LrcParser;
 import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.Utils.WindowUtils;
 import com.yt.downloader.spogify.Utils.fileUtils.FilesExtractor;
 import com.yt.downloader.spogify.Utils.fileUtils.VideoFile;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
 import com.yt.downloader.spogify.mvp.bean.FavoriteTrack;
+import com.yt.downloader.spogify.mvp.bean.LyricsBean;
 import com.yt.downloader.spogify.mvp.bean.Mp3downloadBean;
 import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
+import com.yt.downloader.spogify.mvp.contract.LyricsContract;
 import com.yt.downloader.spogify.mvp.contract.MusicListContract;
 import com.yt.downloader.spogify.mvp.contract.TrackInfoContract;
+import com.yt.downloader.spogify.mvp.presenter.LyricsPresenter;
 import com.yt.downloader.spogify.mvp.presenter.MusicListPresenter;
 import com.yt.downloader.spogify.mvp.presenter.TrackInfoPresenter;
 import com.yt.downloader.spogify.ui.adapter.TopTrackInfoAdapter;
@@ -54,7 +63,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 
 public class TrackInfoActivity extends MiniPlayerActivity
-        implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View {
+        implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View, LyricsContract.View {
 
     private ActivityTrackInfoBinding binding;
     private String artistName;
@@ -77,7 +86,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private TrackInfoBean.Track currentDownloadTrack;
     private FilesExtractor filesExtractor;
     private KProgressHUD hud;
-
+    private LyricsPresenter lyricsPresenter;
+    private String musicName = "";
+    private String ArtistName = "";
+    private boolean mainDestroyed = false;
+    private String currentLyricsTrackKey = "";
     private final ActivityResultLauncher<String> storagePermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
@@ -94,14 +107,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 // Permission outcome handled
             });
 
-    // ---------------------------------------------------------------
-    // MiniPlayerActivity hooks
-    // ---------------------------------------------------------------
 
     @Override
     public void onNextTrackRequested() {
         PlayerState s = PlayerState.get();
-        // If the playing song is not in THIS list, use the shared queue instead
         if (s.hasTrack && !s.queue.isEmpty() && findPlayingIndex() < 0) {
             super.onNextTrackRequested();
             return;
@@ -166,10 +175,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         updateFollowButtonUI();
         hud = KProgressHUD.create(this)
-                .setStyle(KProgressHUD.Style.SPIN_INDETERMINATE)
-                .setLabel("Please wait");
+                .setStyle(KProgressHUD.Style.ANNULAR_DETERMINATE)
+                .setLabel("Please wait");;
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
+        lyricsPresenter = new LyricsPresenter(this);
 
         if (isFromDownload) {
             loadDownloadedTracksOnly();
@@ -196,6 +206,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         super.onResume();
         syncIndexFromPlayerState();
         updateAdapterTrackState();
+        checkCurrentTrackLyrics();
     }
 
     private void checkNotificationPermission() {
@@ -236,7 +247,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         currentTrackList = trackList;
         trackInfoAdapter.setNewData(trackList);
 
-        currentPlayingIndex = -1;
+        currentPlayingIndex = trackList.isEmpty() ? -1 : 0;
         syncIndexFromPlayerState();
         updateAdapterTrackState();
     }
@@ -320,16 +331,25 @@ public class TrackInfoActivity extends MiniPlayerActivity
         trackInfoAdapter.setOnTrackClickListener((track, position, isDownloaded) -> {
             currentPlayingIndex = position;
             updateBigHeaderImage(track);
-
             if (isDownloaded || isFromDownload) {
+
                 File localAudio = filesExtractor.getDownloadedFile(track.getName());
-                if (localAudio != null) {
+
+                if (localAudio != null && localAudio.exists()) {
+
                     playLocalAudioFile(localAudio, track.getName());
+
+                } else {
+
+                    Toast.makeText(this, "Audio file not found", Toast.LENGTH_SHORT).show();
+
                 }
             } else {
+
                 isDownloadingProcess = false;
                 String searchQuery = buildSearchQuery(track);
                 musicListPresenter.getSearchListQuery(searchQuery);
+
             }
         });
 
@@ -658,41 +678,68 @@ public class TrackInfoActivity extends MiniPlayerActivity
     }
 
     private void onFabPlayClicked() {
+
+        if (currentTrackList == null || currentTrackList.isEmpty()) {
+            Toast.makeText(this, "No tracks available to play", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        PlayerState s = PlayerState.get();
+
         if (isLoadedHere()) {
             togglePlayPause();
             return;
         }
-        PlayerState s = PlayerState.get();
+
+        if (currentPlayingIndex < 0 || currentPlayingIndex >= currentTrackList.size()) {
+            currentPlayingIndex = 0;
+        }
+
+        TrackInfoBean.Track activeTrack = currentTrackList.get(currentPlayingIndex);
+
+        if (activeTrack == null) {
+            return;
+        }
+
+        boolean isDownloaded = filesExtractor != null
+                && filesExtractor.isFileDownloaded(activeTrack.getName());
+
+        if (isDownloaded || isFromDownload) {
+
+            File localAudio = filesExtractor.getDownloadedFile(activeTrack.getName());
+
+            if (localAudio != null && localAudio.exists()) {
+
+                if (s.hasTrack && s.isLocal
+                        && TextUtils.equals(s.localPath, localAudio.getAbsolutePath())) {
+
+                    togglePlayPause();
+
+                } else {
+
+                    playLocalAudioFile(localAudio, activeTrack.getName());
+
+                }
+
+            } else {
+                Toast.makeText(this, "Downloaded audio file not found", Toast.LENGTH_SHORT).show();
+            }
+
+            return;
+        }
+
         if (s.hasTrack && findPlayingIndex() >= 0) {
             syncIndexFromPlayerState();
             togglePlayPause();
             return;
         }
 
-        if (currentTrackList != null && !currentTrackList.isEmpty()) {
-            if (currentPlayingIndex < 0 || currentPlayingIndex >= currentTrackList.size()) {
-                currentPlayingIndex = 0;
-            }
+        isDownloadingProcess = false;
+        updateBigHeaderImage(activeTrack);
+        updateAdapterTrackState();
 
-            TrackInfoBean.Track activeTrack = currentTrackList.get(currentPlayingIndex);
-            boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(activeTrack.getName());
-
-            updateBigHeaderImage(activeTrack);
-
-            if (isDownloaded || isFromDownload) {
-                File localAudio = filesExtractor.getDownloadedFile(activeTrack.getName());
-                if (localAudio != null) {
-                    playLocalAudioFile(localAudio, activeTrack.getName());
-                }
-            } else {
-                isDownloadingProcess = false;
-                updateAdapterTrackState();
-                String searchQuery = buildSearchQuery(activeTrack);
-                musicListPresenter.getSearchListQuery(searchQuery);
-            }
-        } else {
-            Toast.makeText(this, "No tracks available to play", Toast.LENGTH_SHORT).show();
-        }
+        String searchQuery = buildSearchQuery(activeTrack);
+        musicListPresenter.getSearchListQuery(searchQuery);
     }
 
     // ---------------------------------------------------------------
@@ -711,6 +758,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if(hud !=null && hud.isShowing()){
             hud.dismiss();
         }
+        if (!mainDestroyed) {
+            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
+//            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
+        }
     }
 
     @Override
@@ -721,11 +772,36 @@ public class TrackInfoActivity extends MiniPlayerActivity
     }
 
     @Override
+    public void getLyricsSuccess(List<LyricsBean> lyricsList) {
+        hud.setLabel("Getting lyrics");
+        if (mainDestroyed) {
+            return;
+        }
+
+        PlayerState s = PlayerState.get();
+
+        if (!s.hasTrack) {
+            return;
+        }
+
+        String playingKey = s.isLocal
+                ? "local:" + s.localPath
+                : "online:" + s.videoId;
+
+        if (!TextUtils.equals(currentLyricsTrackKey, playingKey)) {
+            return;
+        }
+        applyLyrics(lyricsList, musicName, ArtistName);
+    }
+
+
+    @Override
     protected void onDestroy() {
         if (hud != null && hud.isShowing()) {
             hud.dismiss();
         }
         hud = null;
+        mainDestroyed = true;
         super.onDestroy();
     }
 
@@ -853,5 +929,176 @@ public class TrackInfoActivity extends MiniPlayerActivity
     public void onTrackChanged() {
         syncIndexFromPlayerState();
         updateAdapterTrackState();
+        checkCurrentTrackLyrics();
     }
+
+    private void checkCurrentTrackLyrics() {
+        if (!isNetworkAvailable()) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        PlayerState state = PlayerState.get();
+
+        if (!state.hasTrack) {
+            currentLyricsTrackKey = "";
+            return;
+        }
+
+        String trackKey = state.isLocal ? "local:" + state.localPath : "online:" + state.videoId;
+
+        if (TextUtils.equals(currentLyricsTrackKey, trackKey)) {
+            return;
+        }
+
+        currentLyricsTrackKey = trackKey;
+
+        String title = state.title;
+        String artist = state.artist == null ? "" : state.artist;
+
+        if (state.queue != null && state.queueIndex >= 0 && state.queueIndex < state.queue.size()) {
+
+            PlayerState.Item item = state.queue.get(state.queueIndex);
+
+            if (item != null) {
+
+                boolean matches = state.isLocal
+                        ? TextUtils.equals(item.localPath, state.localPath)
+                        : TextUtils.equals(item.videoId, state.videoId);
+
+                if (matches && !TextUtils.isEmpty(item.name)) {
+                    title = item.name;
+                }
+
+                if (matches && !TextUtils.isEmpty(item.artist)) {
+                    artist = item.artist;
+                }
+            }
+        }
+
+        String musicTitle = cleanMusicTitle(title);
+
+        if (TextUtils.isEmpty(musicTitle)) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        requestLyrics(musicTitle, artist);
+    }
+
+    @SuppressWarnings("deprecation")
+    @SuppressLint("MissingPermission")
+    private boolean isNetworkAvailable() {
+        ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetworkInfo = connectivityManager != null ? connectivityManager.getActiveNetworkInfo() : null;
+        return activeNetworkInfo != null && activeNetworkInfo.isConnected();
+    }
+    private String cleanMusicTitle(String title) {
+        if (TextUtils.isEmpty(title)) {
+            return "";
+        }
+
+        String clean = title.trim();
+
+        clean = clean.replaceAll("(?i)\\([^)]*(official|lyrics?|audio|video|visualizer|remaster)[^)]*\\)", "");
+
+        clean = clean.replaceAll("(?i)\\[[^]]*(official|lyrics?|audio|video|visualizer|remaster)[^]]*\\]", "");
+
+        if (clean.contains(" - ")) {
+            String[] parts = clean.split(" - ", 2);
+            clean = parts[1].trim();
+        }
+
+        clean = clean.replaceAll("(?i)\\s+(official\\s+)?(lyrics?|music video|audio|visualizer)\\s*$", "");
+
+        return clean.trim();
+    }
+
+    private void requestLyrics(String musicTitle, String artistName) {
+        musicName = musicTitle;
+        ArtistName = artistName == null ? "" : artistName;
+        clearCurrentLyrics();
+//        Log.d("LYRICS_DEBUG", "Searching music: " + musicName + " | Artist: " + ArtistName);
+        if (lyricsPresenter != null && !TextUtils.isEmpty(musicName)) {
+            lyricsPresenter.getLyrics(musicName);
+        }
+    }
+
+    private void applyLyrics(List<LyricsBean> lyricsList, String musicTitle, String artistName) {
+        if (lyricsList == null || lyricsList.isEmpty()) {
+            clearCurrentLyrics();
+
+//            Log.d("LYRICS_DEBUG", "No lyrics found for " + musicTitle);
+            return;
+        }
+        String syncedLyrics = "";
+
+        for (LyricsBean bean : lyricsList) {
+
+            if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
+                continue;
+            }
+
+            String apiTitle = cleanMusicTitle(bean.getTrackName());
+
+            String apiArtist = bean.getArtistName() == null ? "" : bean.getArtistName();
+
+            boolean titleMatches = apiTitle.equalsIgnoreCase(musicTitle);
+
+            boolean artistMatches = TextUtils.isEmpty(artistName)
+                    || (!TextUtils.isEmpty(apiArtist)
+                    && (apiArtist.toLowerCase(Locale.ROOT).contains(artistName.toLowerCase(Locale.ROOT))
+                    || artistName.toLowerCase(Locale.ROOT).contains(apiArtist.toLowerCase(Locale.ROOT))));
+
+            if (titleMatches && artistMatches) {
+                syncedLyrics = bean.getSyncedLyrics();
+                break;
+            }
+        }
+
+        if (TextUtils.isEmpty(syncedLyrics)) {
+            for (LyricsBean bean : lyricsList) {
+
+                if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
+                    continue;
+                }
+
+                if (cleanMusicTitle(bean.getTrackName()).equalsIgnoreCase(musicTitle)) {
+                    syncedLyrics = bean.getSyncedLyrics();
+                    break;
+                }
+            }
+        }
+        if (TextUtils.isEmpty(syncedLyrics)) {
+
+            clearCurrentLyrics();
+
+//            Log.d("LYRICS_DEBUG", "No synced lyrics for " + musicTitle);
+            return;
+        }
+
+        PlayerState state = PlayerState.get();
+
+        state.parsedLyrics = LrcParser.parse(syncedLyrics);
+
+        super.onTrackChanged();
+//
+//        Log.d("LYRICS_DEBUG", "Lyrics updated: " + musicTitle);
+    }
+
+    private void clearCurrentLyrics() {
+
+        PlayerState state = PlayerState.get();
+
+        state.parsedLyrics = new ArrayList<>();
+
+        if (karaokeLyricsController != null) {
+            karaokeLyricsController.clear();
+        }
+
+        if (mini != null && mini.tvMiniLyrics != null) {
+            mini.tvMiniLyrics.setVisibility(View.GONE);
+        }
+    }
+
 }

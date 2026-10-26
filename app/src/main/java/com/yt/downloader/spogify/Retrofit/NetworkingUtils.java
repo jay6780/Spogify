@@ -5,7 +5,7 @@ import com.yt.downloader.spogify.mvp.api.YoutubeApi;
 
 public class NetworkingUtils {
 
-    private static YoutubeApi apiService,lastfmService;
+    private static YoutubeApi apiService,lastfmService,lyricsApi;
 
 
     public static YoutubeApi getApiService() {
@@ -19,5 +19,12 @@ public class NetworkingUtils {
             lastfmService = LastFmAdapter.getInstance().create(YoutubeApi.class);
 
         return lastfmService;
+    }
+
+    public static YoutubeApi getLyrics() {
+        if (lyricsApi == null)
+            lyricsApi = LyricsAdapter.getInstance().create(YoutubeApi.class);
+
+        return lyricsApi;
     }
 }
