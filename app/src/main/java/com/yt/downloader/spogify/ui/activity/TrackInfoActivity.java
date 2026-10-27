@@ -768,8 +768,8 @@ public class TrackInfoActivity extends MiniPlayerActivity
             hud.dismiss();
         }
         if (!mainDestroyed) {
-            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
-//            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
+//            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
+            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
         }
     }
 
@@ -781,26 +781,15 @@ public class TrackInfoActivity extends MiniPlayerActivity
     }
 
     @Override
-    public void getLyricsSuccess(List<LyricsBean> lyricsList) {
-        if (mainDestroyed) {
-            return;
-        }
-
+    public void getLyricsSuccess(LyricsBean bean) {
+        if (mainDestroyed) return;
         PlayerState s = PlayerState.get();
-
-        if (!s.hasTrack) {
-            return;
-        }
-
-        String playingKey = s.isLocal
-                ? "local:" + s.localPath
-                : "online:" + s.videoId;
-
-        if (!TextUtils.equals(currentLyricsTrackKey, playingKey)) {
-            return;
-        }
-        applyLyrics(lyricsList, musicName, ArtistName);
+        if (!s.hasTrack) return;
+        String playingKey = s.isLocal ? "local:" + s.localPath : "online:" + s.videoId;
+        if (!TextUtils.equals(currentLyricsTrackKey, playingKey)) return;
+        applyLyrics(bean, musicName);
     }
+
 
 
     @Override
@@ -1002,15 +991,13 @@ public class TrackInfoActivity extends MiniPlayerActivity
         return activeNetworkInfo != null && activeNetworkInfo.isConnected();
     }
     private String cleanMusicTitle(String title) {
-        if (TextUtils.isEmpty(title)) {
-            return "";
-        }
+        if (TextUtils.isEmpty(title)) return "";
 
         String clean = title.trim();
 
-        clean = clean.replaceAll("(?i)\\([^)]*(official|lyrics?|audio|video|visualizer|remaster)[^)]*\\)", "");
-
-        clean = clean.replaceAll("(?i)\\[[^]]*(official|lyrics?|audio|video|visualizer|remaster)[^]]*\\]", "");
+        String junk = "official|lyrics?|audio|video|visualizer|remaster(ed)?|feat\\.?|ft\\.?";
+        clean = clean.replaceAll("(?i)\\([^)]*(" + junk + ")[^)]*\\)", "");
+        clean = clean.replaceAll("(?i)\\[[^]]*(" + junk + ")[^]]*\\]", "");
 
         if (clean.contains(" - ")) {
             String[] parts = clean.split(" - ", 2);
@@ -1021,7 +1008,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         return clean.trim();
     }
-
     private void requestLyrics(String musicTitle, String artistName) {
         musicName = musicTitle;
         ArtistName = artistName == null ? "" : artistName;
@@ -1029,71 +1015,21 @@ public class TrackInfoActivity extends MiniPlayerActivity
 //        Log.d("LYRICS_DEBUG", "Searching music: " + musicName + " | Artist: " + ArtistName);
         if (lyricsPresenter != null && !TextUtils.isEmpty(musicName)) {
             isDownload = false;
-            lyricsPresenter.getLyrics(musicName);
+            lyricsPresenter.getLyrics(musicName,artistName);
         }
     }
 
-    private void applyLyrics(List<LyricsBean> lyricsList, String musicTitle, String artistName) {
-        if (lyricsList == null || lyricsList.isEmpty()) {
+    private void applyLyrics(LyricsBean bean, String musicTitle) {
+        if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
             clearCurrentLyrics();
-
-//            Log.d("LYRICS_DEBUG", "No lyrics found for " + musicTitle);
-            return;
-        }
-        String syncedLyrics = "";
-
-        for (LyricsBean bean : lyricsList) {
-
-            if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
-                continue;
-            }
-
-            String apiTitle = cleanMusicTitle(bean.getTrackName());
-
-            String apiArtist = bean.getArtistName() == null ? "" : bean.getArtistName();
-
-            boolean titleMatches = apiTitle.equalsIgnoreCase(musicTitle);
-
-            boolean artistMatches = TextUtils.isEmpty(artistName)
-                    || (!TextUtils.isEmpty(apiArtist)
-                    && (apiArtist.toLowerCase(Locale.ROOT).contains(artistName.toLowerCase(Locale.ROOT))
-                    || artistName.toLowerCase(Locale.ROOT).contains(apiArtist.toLowerCase(Locale.ROOT))));
-
-            if (titleMatches && artistMatches) {
-                syncedLyrics = bean.getSyncedLyrics();
-                break;
-            }
-        }
-
-        if (TextUtils.isEmpty(syncedLyrics)) {
-            for (LyricsBean bean : lyricsList) {
-
-                if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
-                    continue;
-                }
-
-                if (cleanMusicTitle(bean.getTrackName()).equalsIgnoreCase(musicTitle)) {
-                    syncedLyrics = bean.getSyncedLyrics();
-                    break;
-                }
-            }
-        }
-        if (TextUtils.isEmpty(syncedLyrics)) {
-
-            clearCurrentLyrics();
-            Toast.makeText(getApplicationContext(),"No Lyrics found: "+musicTitle, LENGTH_SHORT).show();
-
-//            Log.d("LYRICS_DEBUG", "No synced lyrics for " + musicTitle);
+            Toast.makeText(getApplicationContext(), "No synced lyrics: " + musicTitle, LENGTH_SHORT).show();
             return;
         }
 
-        PlayerState state = PlayerState.get();
-
-        state.parsedLyrics = LrcParser.parse(syncedLyrics);
-
+        PlayerState s = PlayerState.get();
+        s.parsedLyrics = LrcParser.parse(bean.getSyncedLyrics());
+        s.lyricsDurationSec = (float) bean.getDuration();
         super.onTrackChanged();
-//
-//        Log.d("LYRICS_DEBUG", "Lyrics updated: " + musicTitle);
     }
 
     private void clearCurrentLyrics() {
@@ -1101,7 +1037,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         PlayerState state = PlayerState.get();
 
         state.parsedLyrics = new ArrayList<>();
-
+        state.lyricsDurationSec = 0f;
         if (karaokeLyricsController != null) {
             karaokeLyricsController.clear();
         }

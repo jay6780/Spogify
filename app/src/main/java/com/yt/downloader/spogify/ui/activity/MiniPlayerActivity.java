@@ -92,6 +92,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                     lastMiniTrackKey = trackKey;
                     syncMiniPlayerInfo();
                     onTrackChanged();
+                    applyLyricsOffset();
                 }
 
                 if (s.durationSec > 0) {
@@ -369,13 +370,17 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 .controls(0)
                 .autoplay(1)
                 .build();
-        mini.llHide.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                boolean isVisible = mini.tvMiniLyrics.getVisibility() == View.VISIBLE;
-                mini.tvMiniLyrics.setVisibility(isVisible ? View.GONE : View.VISIBLE);
-            }
+        View.OnClickListener openFull = v -> openNowPlaying();
+        mini.llHide.setOnClickListener(openFull);
+        mini.rlMiniPlayer.setOnClickListener(openFull);
+
+        mini.llHide.setOnLongClickListener(v -> {
+            boolean visible = mini.tvMiniLyrics.getVisibility() == View.VISIBLE;
+            mini.tvMiniLyrics.setVisibility(visible ? View.GONE : View.VISIBLE);
+            return true;
         });
+        
+        
         mini.ivMiniPrevious.setOnClickListener(v -> {
             onPreviousTrackRequested();
         });
@@ -426,6 +431,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 totalDuration = duration;
                 PlayerState.get().durationSec = duration;
                 sendStateToService(isPlaying);
+                applyLyricsOffset();
             }
 
             @Override
@@ -454,6 +460,20 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         attachLocalPlayerListener();
     }
 
+    private void openNowPlaying() {
+        if (!PlayerState.get().hasTrack || isFinishing()) return;
+        if (getSupportFragmentManager().findFragmentByTag("now_playing") != null) return;
+        new NowPlayingDialog().show(getSupportFragmentManager(), "now_playing");
+    }
+
+    public void seekToSec(float sec) {
+        if (isLocalPlayback) {
+            LocalAudioPlayer.getInstance().seekTo((long) (sec * 1000));
+        } else if (miniPlayer != null) {
+            miniPlayer.seekTo(sec);
+        }
+        PlayerState.get().positionSec = sec;
+    }
     private void attachLocalPlayerListener() {
         LocalAudioPlayer.getInstance().setPlayerStateListener(new LocalAudioPlayer.PlayerStateListener() {
             @Override
@@ -480,7 +500,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                         && karaokeLyricsController.hasLyrics()) {
                     karaokeLyricsController.tick(currentSec, s.isPlaying);
                 }
-
+                applyLyricsOffset();
                 sendStateToService(isPlaying);
             }
 
@@ -747,6 +767,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         PlayerState s = PlayerState.get();
         if (!s.hasTrack) return;
 
+        if (mini.rlMiniPlayer.getBackground() != null) {
+            mini.rlMiniPlayer.getBackground().mutate()
+                    .setTint(NowPlayingDialog.colorFor(s.title));
+        }
+
         if (mini != null && mini.tvMiniLyrics != null) {
             if (s.parsedLyrics != null && !s.parsedLyrics.isEmpty()) {
                 mini.tvMiniLyrics.setVisibility(View.VISIBLE);
@@ -890,5 +915,20 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         if (s.queue == null || s.queue.isEmpty()) return;
 
         playSharedQueueAt(s.queueIndex - 1);
+    }
+    protected void applyLyricsOffset() {
+        if (karaokeLyricsController == null) return;
+        PlayerState s = PlayerState.get();
+
+        long offsetMs = 0;
+        if (s.lyricsDurationSec > 0 && s.durationSec > 0) {
+            float diff = s.durationSec - s.lyricsDurationSec;   // + = video longer
+            // ignore tiny differences and huge ones (probably a different version)
+            if (Math.abs(diff) >= 1.5f && Math.abs(diff) <= 30f) {
+                offsetMs = (long) (-diff * 1000);   // negative = lyrics appear later
+            }
+        }
+        karaokeLyricsController.setOffsetMs(offsetMs);
+        s.lyricsOffsetMs = offsetMs;
     }
 }

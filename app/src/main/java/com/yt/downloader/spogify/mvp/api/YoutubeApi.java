@@ -71,7 +71,8 @@ public interface YoutubeApi {
             @Query("format") String format
     );
 
-    @GET("api/search")
-    Observable<List<LyricsBean>> getLyrics(
-            @Query("q") String q);
+    @GET("api/get")
+    Observable<LyricsBean> getLyrics(
+            @Query("track_name") String track_name,
+            @Query("artist_name") String artist_name);
 }

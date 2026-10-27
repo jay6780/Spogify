@@ -22,10 +22,10 @@ public class LyricsPresenter implements LyricsContract.Presenter {
 
 
     @Override
-    public void getLyrics(String q) {
+    public void getLyrics(String track_name,String artist_name) {
         view.showLoading();
 
-        LyricsModel.getLyricsQuery(q, new Callback<List<LyricsBean>>() {
+        LyricsModel.getLyricsQuery(track_name,artist_name, new Callback<LyricsBean>() {
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
             }
@@ -36,7 +36,7 @@ public class LyricsPresenter implements LyricsContract.Presenter {
             }
 
             @Override
-            public void returnResult(List<LyricsBean> apiBean) {
+            public void returnResult(LyricsBean apiBean) {
                 view.hideLoading();
                 view.getLyricsSuccess(apiBean);
             }

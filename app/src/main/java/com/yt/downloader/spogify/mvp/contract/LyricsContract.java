@@ -9,11 +9,11 @@ public interface LyricsContract {
         void showLoading();
         void showError(String error);
         void hideLoading();
-        void getLyricsSuccess(List<LyricsBean> lyricsBean);
+        void getLyricsSuccess(LyricsBean lyricsBean);
 
     }
 
     interface Presenter {
-        void getLyrics(String q);
+        void getLyrics(String track_name,String artist_name);
     }
 }

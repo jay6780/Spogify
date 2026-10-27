@@ -1,6 +1,7 @@
 package com.yt.downloader.spogify.mvp.bean;
 
 public class LyricsBean {
+
     private int id;
     private String name;
     private String trackName;
@@ -53,7 +54,6 @@ public class LyricsBean {
         this.albumName = albumName;
     }
 
-
     public double getDuration() {
         return duration;
     }
@@ -61,6 +61,7 @@ public class LyricsBean {
     public void setDuration(double duration) {
         this.duration = duration;
     }
+
     public boolean isInstrumental() {
         return instrumental;
     }

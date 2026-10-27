@@ -12,18 +12,18 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 public class LyricsModel {
-    public static void getLyricsQuery(String q, final Callback<List<LyricsBean>> callback) {
+    public static void getLyricsQuery(String track_name,String artist_name, final Callback<LyricsBean> callback) {
         NetworkingUtils.getLyrics()
-                .getLyrics(q)
+                .getLyrics(track_name,artist_name)
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribeOn(Schedulers.io())
-                .subscribe(new Observer<List<LyricsBean>>() {
+                .subscribe(new Observer<LyricsBean>() {
                     @Override
                     public void onSubscribe(Disposable d) {
                     }
 
                     @Override
-                    public void onNext(List<LyricsBean> data) {
+                    public void onNext(LyricsBean data) {
                         callback.returnResult(data);
                     }
 
