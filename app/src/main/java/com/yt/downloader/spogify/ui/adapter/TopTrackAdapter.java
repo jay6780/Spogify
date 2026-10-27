@@ -1,5 +1,6 @@
 package com.yt.downloader.spogify.ui.adapter;
 
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.view.View;
 import android.widget.ImageView;
@@ -9,6 +10,7 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.gson.Gson;
 import com.yt.downloader.R;
+import com.yt.downloader.spogify.Utils.FormatCountUtil;
 import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.spogify.base.BaseViewHolder;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
@@ -31,7 +33,7 @@ public class TopTrackAdapter extends BaseQuickAdapter<TopTrackBean.Track, BaseVi
     public TopTrackAdapter() {
         super(R.layout.item_top_artist);
     }
-
+    @SuppressLint("SetTextI18n")
     @Override
     protected void convert(BaseViewHolder helper, TopTrackBean.Track item) {
         TextView tvCategory = helper.getView(R.id.tvCategory);
@@ -43,7 +45,13 @@ public class TopTrackAdapter extends BaseQuickAdapter<TopTrackBean.Track, BaseVi
         tvArtistName.setText(item.getName());
 
         if (item.getListeners() != null) {
-            tvPlayCount.setText(item.getListeners() + " listeners");
+            try {
+                long listeners = Long.parseLong(item.getListeners());
+                tvPlayCount.setText(new FormatCountUtil ().formatListenerCount(listeners));
+            }catch (Exception e){
+                e.printStackTrace();
+                tvPlayCount.setText("0" + " listeners");
+            }
         } else {
             tvPlayCount.setText("");
         }

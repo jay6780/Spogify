@@ -5,6 +5,7 @@ import static android.widget.Toast.LENGTH_SHORT;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -33,6 +34,7 @@ import com.yt.downloader.spogify.Retrofit.AppConstant;
 import com.yt.downloader.spogify.Utils.DownloadTrackModel;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FollowDatabaseHelper;
+import com.yt.downloader.spogify.Utils.FormatCountUtil;
 import com.yt.downloader.spogify.Utils.LrcParser;
 import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.Utils.WindowUtils;
@@ -63,7 +65,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
-
+import com.yt.downloader.spogify.Utils.LyricsDatabaseHelper;
 public class TrackInfoActivity extends MiniPlayerActivity
         implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View, LyricsContract.View {
 
@@ -81,7 +83,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private TopTrackInfoAdapter trackInfoAdapter;
     private FollowDatabaseHelper dbHelper;
     private FavoriteDatabaseHelper favDbHelper;
-
+    private LyricsDatabaseHelper lyricsDatabaseHelper;
     private List<TrackInfoBean.Track> currentTrackList = new ArrayList<>();
     private int currentPlayingIndex = 0;
     private boolean isDownloadingProcess = false;
@@ -183,7 +185,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
         lyricsPresenter = new LyricsPresenter(this);
-
+        lyricsDatabaseHelper = new LyricsDatabaseHelper(this);
         if (isFromDownload) {
             loadDownloadedTracksOnly();
         } else if (isFromFavorite) {
@@ -371,10 +373,35 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     private void playLocalAudioFile(File file, String trackTitle) {
         syncQueueToState();
-        playLocal(file, trackTitle, artistName);
+
+        String localArtist = artistName == null ? "" : artistName;
+
+        if (isFromFavorite) {
+            FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(trackTitle);
+            if (fav != null && !TextUtils.isEmpty(fav.getArtistName())) {
+                localArtist = fav.getArtistName();
+            }
+        }
+
+        PlayerState state = PlayerState.get();
+
+        if (TextUtils.isEmpty(localArtist) && state.queue != null
+                && currentPlayingIndex >= 0
+                && currentPlayingIndex < state.queue.size()) {
+
+            PlayerState.Item item = state.queue.get(currentPlayingIndex);
+
+            if (item != null && !TextUtils.isEmpty(item.artist)) {
+                localArtist = item.artist;
+            }
+        }
+
+        playLocal(file, trackTitle, localArtist);
+
+        checkCurrentTrackLyrics();
+
         updateAdapterTrackState();
     }
-
     private void playVideoInMiniPlayer(String videoId, String title, String thumbUrl) {
         String displayArtist = artistName;
         if (isFromFavorite && currentTrackList != null && currentPlayingIndex < currentTrackList.size()) {
@@ -570,21 +597,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if (idx >= 0 && idx != currentPlayingIndex) {
             currentPlayingIndex = idx;
             if (binding != null) updateBigHeaderImage(currentTrackList.get(idx));
-        }
-    }
-
-    private String formatListenerCount(long count) {
-        if (count < 1000) {
-            return count + " listeners";
-        } else if (count < 1000000) {
-            double thousands = count / 1000.0;
-            return String.format(Locale.US, thousands % 1 == 0 ? "%.0fK listeners" : "%.1fK listeners", thousands);
-        } else if (count < 1000000000L) {
-            double millions = count / 1000000.0;
-            return String.format(Locale.US, millions % 1 == 0 ? "%.0fM listeners" : "%.1fM listeners", millions);
-        } else {
-            double billions = count / 1000000000.0;
-            return String.format(Locale.US, billions % 1 == 0 ? "%.0fB listeners" : "%.1fB listeners", billions);
         }
     }
 
@@ -799,6 +811,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
         hud = null;
         mainDestroyed = true;
+        if (lyricsDatabaseHelper != null) {
+            lyricsDatabaseHelper.close();
+            lyricsDatabaseHelper = null;
+        }
         super.onDestroy();
     }
 
@@ -878,12 +894,17 @@ public class TrackInfoActivity extends MiniPlayerActivity
                         try {
                             totalListeners += Long.parseLong(countStr.trim());
                         } catch (NumberFormatException ignored) {
+                            ignored.printStackTrace();
                         }
                     }
                 }
                 if (totalListeners > 0) {
-                    totalListenersText = formatListenerCount(totalListeners);
-                    binding.tvListeners.setText(totalListenersText);
+                    try {
+                        totalListenersText = new FormatCountUtil().formatListenerCount(totalListeners);
+                        binding.tvListeners.setText(totalListenersText);
+                    }catch (Exception e){
+                        e.printStackTrace();
+                    }
                 }
 
                 // The list arrived after the screen opened: highlight what is already playing
@@ -930,15 +951,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
     }
 
     private void checkCurrentTrackLyrics() {
-        if (!isNetworkAvailable()) {
-            clearCurrentLyrics();
-            return;
-        }
 
         PlayerState state = PlayerState.get();
 
         if (!state.hasTrack) {
             currentLyricsTrackKey = "";
+            clearCurrentLyrics();
             return;
         }
 
@@ -974,7 +992,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
 
         String musicTitle = cleanMusicTitle(title);
-
+//        Log.d("LYRICS_CACHE", "Track check: "
+//                + "Title=" + musicTitle
+//                + " | Artist=" + artist
+//                + " | Local=" + state.isLocal
+//                + " | Key=" + trackKey);
         if (TextUtils.isEmpty(musicTitle)) {
             clearCurrentLyrics();
             return;
@@ -982,7 +1004,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         requestLyrics(musicTitle, artist);
     }
-
     @SuppressWarnings("deprecation")
     @SuppressLint("MissingPermission")
     private boolean isNetworkAvailable() {
@@ -1011,13 +1032,59 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private void requestLyrics(String musicTitle, String artistName) {
         musicName = musicTitle;
         ArtistName = artistName == null ? "" : artistName;
+
+        if (TextUtils.isEmpty(musicName)) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        LyricsDatabaseHelper.CachedLyrics cachedLyrics =
+                lyricsDatabaseHelper.getLyrics(ArtistName, musicName);
+
+        if (cachedLyrics == null) {
+            cachedLyrics = lyricsDatabaseHelper.getLyricsByMusicName(musicName);
+        }
+
+        if (cachedLyrics != null) {
+
+//            Log.d("LYRICS_CACHE", "Loaded from SQLite: " + musicName + " | Artist: " + ArtistName);
+
+            applyCachedLyrics(cachedLyrics);
+
+            return;
+        }
+
         clearCurrentLyrics();
-//        Log.d("LYRICS_DEBUG", "Searching music: " + musicName + " | Artist: " + ArtistName);
-        if (lyricsPresenter != null && !TextUtils.isEmpty(musicName)) {
+
+        if (!isNetworkAvailable()) {
+//            Log.d("LYRICS_CACHE", "No cached lyrics and no internet: " + musicName);
+            return;
+        }
+
+//        Log.d("LYRICS_CACHE", "Requesting API: " + musicName + " | Artist: " + ArtistName);
+
+        if (lyricsPresenter != null) {
             isDownload = false;
-            lyricsPresenter.getLyrics(musicName,artistName);
+            lyricsPresenter.getLyrics(musicName, ArtistName);
         }
     }
+    private void applyCachedLyrics(LyricsDatabaseHelper.CachedLyrics cachedLyrics) {
+
+        if (cachedLyrics == null || TextUtils.isEmpty(cachedLyrics.syncedLyrics)) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        PlayerState s = PlayerState.get();
+
+        s.parsedLyrics = LrcParser.parse(cachedLyrics.syncedLyrics);
+        s.lyricsDurationSec = (float) cachedLyrics.duration;
+
+        super.onTrackChanged();
+//
+//        Log.d("LYRICS_CACHE", "Synced lyrics loaded successfully from database");
+    }
+
 
     private void applyLyrics(LyricsBean bean, String musicTitle) {
         if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
@@ -1026,9 +1093,24 @@ public class TrackInfoActivity extends MiniPlayerActivity
             return;
         }
 
+        String syncedLyrics = bean.getSyncedLyrics();
+        double duration = bean.getDuration();
+
+        boolean saved = lyricsDatabaseHelper.saveLyrics(
+                ArtistName,
+                musicTitle,
+                syncedLyrics,
+                duration
+        );
+
+        if (saved) {
+//            Log.d("LYRICS_CACHE", "Lyrics saved to SQLite: " + musicTitle);
+        }
+
         PlayerState s = PlayerState.get();
-        s.parsedLyrics = LrcParser.parse(bean.getSyncedLyrics());
-        s.lyricsDurationSec = (float) bean.getDuration();
+        s.parsedLyrics = LrcParser.parse(syncedLyrics);
+        s.lyricsDurationSec = (float) duration;
+
         super.onTrackChanged();
     }
 
@@ -1047,4 +1129,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (trackInfoAdapter != null) {
+            trackInfoAdapter.onDeleteMusicResult(requestCode, resultCode);
+        }
+    }
 }

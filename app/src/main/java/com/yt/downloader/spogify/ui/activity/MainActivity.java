@@ -38,11 +38,11 @@ import com.yt.downloader.spogify.ui.fragment.SearchFragment;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-
+import com.yt.downloader.spogify.Utils.LyricsDatabaseHelper;
 public class MainActivity extends MiniPlayerActivity implements View.OnClickListener, LyricsContract.View {
 
     private ActivityMainBinding binding;
-
+    private LyricsDatabaseHelper lyricsDatabaseHelper;
     private Fragment homeFragment, searchFragment, playlistFragment;
     private String currentLyricsTrackKey = "";
     private boolean mainDestroyed = false;
@@ -58,11 +58,9 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
         bindMiniPlayer(binding.layoutMiniPlayer);
-
         lyricsPresenter = new LyricsPresenter(this);
-
+        lyricsDatabaseHelper = new LyricsDatabaseHelper(this);
         askNotificationPermission();
-
         binding.llHome.setOnClickListener(this);
         binding.llPlaylist.setOnClickListener(this);
         binding.llSearch.setOnClickListener(this);
@@ -216,9 +214,14 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
     @Override
     protected void onDestroy() {
         mainDestroyed = true;
+
+        if (lyricsDatabaseHelper != null) {
+            lyricsDatabaseHelper.close();
+            lyricsDatabaseHelper = null;
+        }
+
         super.onDestroy();
     }
-
     @Override
     public void showLoading() {
 
@@ -251,14 +254,12 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
     }
 
     private void checkCurrentTrackLyrics() {
-        if (!isNetworkAvailable()) {
-            clearCurrentLyrics();
-            return;
-        }
+
         PlayerState state = PlayerState.get();
 
         if (!state.hasTrack) {
             currentLyricsTrackKey = "";
+            clearCurrentLyrics();
             return;
         }
 
@@ -300,6 +301,11 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
             return;
         }
 
+//        Log.d("LYRICS_CACHE", "MainActivity Track: "
+//                + musicTitle
+//                + " | Artist: " + artist
+//                + " | Local: " + state.isLocal);
+
         requestLyrics(musicTitle, artist);
     }
 
@@ -332,15 +338,71 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
         musicName = musicTitle;
         ArtistName = artistName == null ? "" : artistName;
 
+        if (TextUtils.isEmpty(musicName)) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        LyricsDatabaseHelper.CachedLyrics cachedLyrics =
+                lyricsDatabaseHelper.getLyrics(ArtistName, musicName);
+
+        if (cachedLyrics == null) {
+            cachedLyrics = lyricsDatabaseHelper.getLyricsByMusicName(musicName);
+        }
+
+        if (cachedLyrics != null) {
+//
+//            Log.d("LYRICS_CACHE", "MainActivity SQLite HIT: "
+//                    + musicName + " | Artist: " + ArtistName);
+
+            applyCachedLyrics(cachedLyrics);
+
+            return;
+        }
+
+        PlayerState state = PlayerState.get();
+
+        if (state.parsedLyrics != null && !state.parsedLyrics.isEmpty()) {
+//
+//            Log.d("LYRICS_CACHE", "Using existing PlayerState lyrics: " + musicName);
+
+            super.onTrackChanged();
+
+            return;
+        }
+
         clearCurrentLyrics();
 
-//        Log.d("LYRICS_DEBUG", "Searching music: " + musicName + " | Artist: " + ArtistName);
+        if (!isNetworkAvailable()) {
+//
+//            Log.d("LYRICS_CACHE", "Offline and no cached lyrics: " + musicName);
 
-        if (lyricsPresenter != null && !TextUtils.isEmpty(musicName)) {
-            lyricsPresenter.getLyrics(musicName,artistName);
+            return;
+        }
+
+//        Log.d("LYRICS_CACHE", "MainActivity API REQUEST: "
+//                + musicName + " | Artist: " + ArtistName);
+
+        if (lyricsPresenter != null) {
+            lyricsPresenter.getLyrics(musicName, ArtistName);
         }
     }
+    private void applyCachedLyrics(LyricsDatabaseHelper.CachedLyrics cachedLyrics) {
 
+        if (cachedLyrics == null || TextUtils.isEmpty(cachedLyrics.syncedLyrics)) {
+            clearCurrentLyrics();
+            return;
+        }
+
+        PlayerState s = PlayerState.get();
+
+        s.parsedLyrics = LrcParser.parse(cachedLyrics.syncedLyrics);
+        s.lyricsDurationSec = (float) cachedLyrics.duration;
+
+        super.onTrackChanged();
+
+//        Log.d("LYRICS_CACHE", "Synced lyrics loaded successfully from database");
+    }
     private void applyLyrics(LyricsBean bean, String musicTitle) {
         if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
             clearCurrentLyrics();
@@ -348,7 +410,24 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
             return;
         }
 
-        PlayerState.get().parsedLyrics = LrcParser.parse(bean.getSyncedLyrics());
+        String syncedLyrics = bean.getSyncedLyrics();
+        double duration = bean.getDuration();
+
+        boolean saved = lyricsDatabaseHelper.saveLyrics(
+                ArtistName,
+                musicTitle,
+                syncedLyrics,
+                duration
+        );
+
+        if (saved) {
+//            Log.d("LYRICS_CACHE", "Lyrics saved to SQLite: " + musicTitle);
+        }
+
+        PlayerState s = PlayerState.get();
+        s.parsedLyrics = LrcParser.parse(syncedLyrics);
+        s.lyricsDurationSec = (float) duration;
+
         super.onTrackChanged();
     }
 

@@ -8,7 +8,13 @@ import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.text.TextUtils;
-
+import android.app.Activity;
+import android.app.RecoverableSecurityException;
+import android.content.ContentUris;
+import android.content.IntentSender;
+import android.provider.MediaStore;
+import android.database.Cursor;
+import java.util.ArrayList;
 import java.io.File;
 import java.util.ArrayList;
 
@@ -127,5 +133,39 @@ public class FilesExtractor {
 
     public boolean isFileDownloaded(String fileName) {
         return getDownloadedFile(fileName) != null;
+    }
+    public Uri getDownloadedMusicUri(String fileName) {
+        if (TextUtils.isEmpty(fileName)) return null;
+
+        File downloadedFile = getDownloadedFile(fileName);
+        if (downloadedFile == null) return null;
+
+        Uri audioUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+
+        String[] projection = {
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.DATA
+        };
+
+        try (Cursor cursor = context.getContentResolver().query(
+                audioUri,
+                projection,
+                MediaStore.Audio.Media.DATA + " = ?",
+                new String[]{downloadedFile.getAbsolutePath()},
+                null)) {
+
+            if (cursor != null && cursor.moveToFirst()) {
+                long id = cursor.getLong(
+                        cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                );
+
+                return ContentUris.withAppendedId(audioUri, id);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return null;
     }
 }

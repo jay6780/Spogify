@@ -1,5 +1,6 @@
 package com.yt.downloader.spogify.ui.adapter;
 
+import android.annotation.SuppressLint;
 import android.graphics.Color;
 import android.text.TextUtils;
 import android.view.View;
@@ -14,6 +15,7 @@ import com.google.gson.Gson;
 import com.yt.downloader.R;
 import com.yt.downloader.spogify.Utils.EqualizerView;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
+import com.yt.downloader.spogify.Utils.FormatCountUtil;
 import com.yt.downloader.spogify.Utils.fileUtils.FilesExtractor;
 import com.yt.downloader.spogify.base.BaseQuickAdapter;
 import com.yt.downloader.spogify.base.BaseViewHolder;
@@ -24,12 +26,23 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import android.app.AlertDialog;
+import android.content.IntentSender;
+import android.app.RecoverableSecurityException;
+import android.os.Build;
+import android.provider.MediaStore;
+import android.net.Uri;
+import android.app.Activity;
+import java.io.File;
 
 public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, BaseViewHolder> {
+    private static final int DELETE_REQUEST_CODE = 5012;
 
+    private String pendingDeleteTrackName = "";
     public interface OnTrackClickListener {
         void onTrackClick(TrackInfoBean.Track track, int position, boolean isDownloaded);
     }
@@ -97,6 +110,7 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         }
     }
 
+    @SuppressLint("SetTextI18n")
     @Override
     protected void convert(BaseViewHolder helper, TrackInfoBean.Track item) {
         if (favDbHelper == null) {
@@ -126,7 +140,19 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
             tv_rank.setText(item.getAttributes().getRank());
         }
         tv_track_title.setText(item.getName());
-        tv_play_count.setText(item.getPlaycount());
+        String playCount = item.getPlaycount();
+
+        if (playCount != null) {
+            try {
+                long count = Long.parseLong(playCount.trim());
+                tv_play_count.setText(new FormatCountUtil().formatListenerCount(count));
+            } catch (NumberFormatException e) {
+                tv_play_count.setText("0 listeners");
+            }
+        } else {
+            tv_play_count.setText("0 listeners");
+        }
+
 
         if (isCurrentPlaying && isPlaying) {
             tv_track_title.setTextColor(Color.parseColor("#1DB954"));
@@ -142,8 +168,8 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
 
 
         if (isDownloaded) {
-            iv_download.setImageResource(android.R.drawable.stat_sys_download_done);
-            iv_download.setColorFilter(Color.parseColor("#1DB954"));
+            iv_download.setImageResource(R.drawable.baseline_delete_24);
+            iv_download.setColorFilter(Color.parseColor("#B3B3B3"));
         } else {
             iv_download.setImageResource(android.R.drawable.stat_sys_download);
             iv_download.setColorFilter(Color.parseColor("#B3B3B3"));
@@ -173,14 +199,13 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         });
 
         iv_download.setOnClickListener(v -> {
-            if (isDownloaded) {
-                Toast.makeText(mContext, "Already downloaded", Toast.LENGTH_SHORT).show();
+            if (filesExtractor.isFileDownloaded(item.getName())) {
+                showDeleteDialog(item.getName());
             } else if (downloadClickListener != null) {
-                Toast.makeText(mContext, "Downloading: "+item.getName(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(mContext, "Downloading: " + item.getName(), Toast.LENGTH_SHORT).show();
                 downloadClickListener.onDownloadClick(item, position);
             }
         });
-
         if (downloadProgressMap.containsKey(item.getName())) {
             int progress = downloadProgressMap.get(item.getName());
             pb_download_progress.setVisibility(View.VISIBLE);
@@ -221,6 +246,153 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         } else {
             imageView.setImageResource(android.R.drawable.ic_input_add);
             imageView.setColorFilter(Color.parseColor("#B3B3B3"));
+        }
+    }
+
+    private void showDeleteDialog(String trackName) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(mContext);
+        View dialogView = View.inflate(mContext, R.layout.delete_notice, null);
+
+        builder.setView(dialogView);
+
+        AlertDialog dialog = builder.create();
+
+        TextView tvTitle = dialogView.findViewById(R.id.tvTitle);
+        TextView tvMessage = dialogView.findViewById(R.id.tvMessage);
+        TextView btnCancel = dialogView.findViewById(R.id.btnCancel);
+        TextView btnOk = dialogView.findViewById(R.id.btnOk);
+
+        tvTitle.setText("Delete file?");
+        tvMessage.setText("Are you sure you want to delete \"" + trackName + "\" from your downloaded music?");
+
+        btnCancel.setOnClickListener(v -> {
+            dialog.dismiss();
+        });
+
+        btnOk.setOnClickListener(v -> {
+            dialog.dismiss();
+
+            deleteDownloadedMusic(trackName);
+        });
+
+        dialog.show();
+    }
+
+    private void deleteDownloadedMusic(String trackName) {
+        File file = filesExtractor.getDownloadedFile(trackName);
+
+        if (file == null || !file.exists()) {
+            Toast.makeText(mContext, "File not found", Toast.LENGTH_SHORT).show();
+            notifyDataSetChanged();
+            return;
+        }
+
+        Uri uri = filesExtractor.getDownloadedMusicUri(trackName);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && uri != null) {
+            if (!(mContext instanceof Activity)) {
+                Toast.makeText(mContext, "Cannot request delete permission", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            try {
+                ArrayList<Uri> uris = new ArrayList<>();
+                uris.add(uri);
+
+                pendingDeleteTrackName = trackName;
+
+                IntentSender intentSender = MediaStore.createDeleteRequest(
+                        mContext.getContentResolver(),
+                        uris
+                ).getIntentSender();
+
+                ((Activity) mContext).startIntentSenderForResult(
+                        intentSender,
+                        DELETE_REQUEST_CODE,
+                        null,
+                        0,
+                        0,
+                        0
+                );
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                Toast.makeText(mContext, "Unable to request deletion", Toast.LENGTH_SHORT).show();
+            }
+
+            return;
+        }
+
+        if (uri != null) {
+            try {
+                int deleted = mContext.getContentResolver().delete(uri, null, null);
+
+                if (deleted > 0) {
+                    onMusicDeleted(trackName);
+                    return;
+                }
+
+            } catch (SecurityException e) {
+                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q
+                        && e instanceof RecoverableSecurityException
+                        && mContext instanceof Activity) {
+
+                    try {
+                        pendingDeleteTrackName = trackName;
+
+                        RecoverableSecurityException recoverable =
+                                (RecoverableSecurityException) e;
+
+                        ((Activity) mContext).startIntentSenderForResult(
+                                recoverable.getUserAction().getActionIntent().getIntentSender(),
+                                DELETE_REQUEST_CODE,
+                                null,
+                                0,
+                                0,
+                                0
+                        );
+
+                    } catch (IntentSender.SendIntentException ex) {
+                        ex.printStackTrace();
+                    }
+
+                    return;
+                }
+
+                Toast.makeText(mContext, "Permission denied", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
+        if (file.delete()) {
+            onMusicDeleted(trackName);
+        } else {
+            Toast.makeText(mContext, "Failed to delete music", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void onMusicDeleted(String trackName) {
+        Toast.makeText(mContext, "Music deleted successfully", Toast.LENGTH_SHORT).show();
+
+        downloadProgressMap.remove(trackName);
+
+        notifyDataSetChanged();
+    }
+
+    public void onDeleteMusicResult(int requestCode, int resultCode) {
+        if (requestCode != DELETE_REQUEST_CODE) return;
+
+        String trackName = pendingDeleteTrackName;
+        pendingDeleteTrackName = "";
+
+        if (resultCode == Activity.RESULT_OK) {
+            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                deleteDownloadedMusic(trackName);
+            } else {
+                onMusicDeleted(trackName);
+            }
+        } else {
+            Toast.makeText(mContext, "Deletion cancelled", Toast.LENGTH_SHORT).show();
         }
     }
 
