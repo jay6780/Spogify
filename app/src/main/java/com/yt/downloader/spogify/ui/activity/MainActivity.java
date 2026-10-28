@@ -269,11 +269,11 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-                if (matches && !TextUtils.isEmpty(item.name)) {
+                if (matches && !TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
                     title = item.name;
-                }
-                if (matches && !TextUtils.isEmpty(item.artist)) {
                     artist = item.artist;
+                }else{
+                    clearCurrentLyrics();
                 }
             }
         }

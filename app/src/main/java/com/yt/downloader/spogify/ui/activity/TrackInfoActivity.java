@@ -694,10 +694,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showError(String error) {
+        clearCurrentLyrics();
         if(hud !=null){
             hud.dismiss();
         }
-        clearCurrentLyrics();
         if (!mainDestroyed) {
 //            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
 //            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
@@ -871,11 +871,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-                if (matches && !TextUtils.isEmpty(item.name)) {
+                if (matches && !TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
                     title = item.name;
-                }
-                if (matches && !TextUtils.isEmpty(item.artist)) {
                     artist = item.artist;
+                }else{
+                    clearCurrentLyrics();
                 }
             }
         }
@@ -982,9 +982,8 @@ public class TrackInfoActivity extends MiniPlayerActivity
     @Override
     protected void onResume() {
         super.onResume();
-        if(hud !=null && hud.isShowing()){
-            hideLoading();
-            clearCurrentLyrics();
+        if(hud !=null){
+            hud.dismiss();
         }
         checkCurrentTrackLyrics();
         updateAdapterTrackState();
