@@ -74,9 +74,9 @@ public class LyricsAdapter {
 
 
             OkHttpClient.Builder builder = new OkHttpClient.Builder();
-            builder.connectTimeout(60, TimeUnit.SECONDS);
-            builder.writeTimeout(60, TimeUnit.SECONDS);
-            builder.readTimeout(120, TimeUnit.SECONDS);
+            builder.connectTimeout(15, TimeUnit.SECONDS);
+            builder.writeTimeout(15, TimeUnit.SECONDS);
+            builder.readTimeout(30, TimeUnit.SECONDS);
             builder.dns(new IPv4FirstDns());
             builder.sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0]);
             builder.hostnameVerifier(new HostnameVerifier() {

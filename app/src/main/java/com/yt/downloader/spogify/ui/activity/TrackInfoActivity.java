@@ -871,10 +871,15 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-                if (matches && !TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
-                    title = item.name;
-                    artist = item.artist;
+                if (matches) {
+                    if (!TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
+                        title = item.name;
+                        artist = item.artist;
+                    }
                 }else{
+                    if(hud !=null){
+                        hud.dismiss();
+                    }
                     clearCurrentLyrics();
                 }
             }

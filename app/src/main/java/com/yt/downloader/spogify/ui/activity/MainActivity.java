@@ -241,7 +241,6 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
 
     @Override
     public void getLyricsSuccess(LyricsBean bean) {
-        clearCurrentLyrics();
         if (mainDestroyed) return;
         PlayerState s = PlayerState.get();
         if (!s.hasTrack) return;
@@ -269,9 +268,11 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-                if (matches && !TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
-                    title = item.name;
-                    artist = item.artist;
+                if (matches) {
+                    if (!TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
+                        title = item.name;
+                        artist = item.artist;
+                    }
                 }else{
                     clearCurrentLyrics();
                 }
@@ -357,7 +358,7 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
     }
 
     private void clearCurrentLyrics() {
-
+        currentLyricsTrackKey = "";
         PlayerState state = PlayerState.get();
 
         state.parsedLyrics = new ArrayList<>();
