@@ -42,13 +42,19 @@ public class MusicListAdapter extends BaseQuickAdapter<SearchTotalBean, BaseView
         ImageView iv_icon = helper.getView(R.id.iv_icon);
         ImageView iv_add_favorite = helper.getView(R.id.iv_add_favorite);
 
-        Glide.with(mContext)
-                .load(item.getThumbnail())
-                .apply(new RequestOptions()
-                        .transform(new CenterCrop(), new RoundedCorners(16))
-                        .placeholder(R.drawable.noimage)
-                        .error(R.drawable.noimage))
-                .into(iv_icon);
+        try {
+            Glide.with(mContext)
+                    .load(item.getThumbnail())
+                    .apply(new RequestOptions()
+                            .transform(new CenterCrop(), new RoundedCorners(16))
+                            .placeholder(R.drawable.noimage)
+                            .error(R.drawable.noimage))
+                    .into(iv_icon);
+
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
 
         tv_title.setText(item.getName());
         tv_duration.setText(item.getDuration());

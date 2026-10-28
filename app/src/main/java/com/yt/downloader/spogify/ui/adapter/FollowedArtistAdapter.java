@@ -34,13 +34,17 @@ public class FollowedArtistAdapter extends BaseQuickAdapter<FollowedArtist, Base
 
         tvArtistName.setText(item.getArtistsName());
         tvPlayCount.setText(item.getTotalListeners());
+        try {
+            Glide.with(mContext)
+                    .load(item.getImage())
+                    .apply(new RequestOptions()
+                            .placeholder(R.drawable.noimage)
+                            .error(R.drawable.noimage))
+                    .into(ivArtistImage);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
 
-        Glide.with(mContext)
-                .load(item.getImage())
-                .apply(new RequestOptions()
-                        .placeholder(R.drawable.noimage)
-                        .error(R.drawable.noimage))
-                .into(ivArtistImage);
 
         helper.getView(R.id.ll_artist).setOnClickListener(v -> {
             if (listener != null) {

@@ -205,7 +205,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
             trackList.add(t);
         }
 
-        Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
+        try {
+            Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
         binding.tvListeners.setText(downloadedFiles.size() + " downloaded tracks");
 
         currentTrackList = trackList;
@@ -411,7 +415,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if (track == null) return;
 
         if (isFromDownload) {
-            Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
+            try {
+                Glide.with(this).load(R.mipmap.app_logo).into(binding.ivBig);
+            }catch (Exception e){
+                e.printStackTrace();
+            }
             return;
         }
 
@@ -974,6 +982,10 @@ public class TrackInfoActivity extends MiniPlayerActivity
     @Override
     protected void onResume() {
         super.onResume();
+        if(hud !=null && hud.isShowing()){
+            hideLoading();
+            clearCurrentLyrics();
+        }
         checkCurrentTrackLyrics();
         updateAdapterTrackState();
     }

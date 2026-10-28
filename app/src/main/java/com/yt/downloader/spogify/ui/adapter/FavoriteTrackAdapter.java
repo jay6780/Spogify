@@ -111,11 +111,16 @@ public class FavoriteTrackAdapter extends BaseQuickAdapter<FavoriteTrack, BaseVi
     }
 
     private void loadImage(ImageView imageView, String imageUrl) {
-        Glide.with(mContext)
-                .load(imageUrl)
-                .apply(new RequestOptions()
-                        .placeholder(R.drawable.noimage)
-                        .error(R.mipmap.app_logo))
-                .into(imageView);
+        try {
+            Glide.with(mContext)
+                    .load(imageUrl)
+                    .apply(new RequestOptions()
+                            .placeholder(R.drawable.noimage)
+                            .error(R.mipmap.app_logo))
+                    .into(imageView);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
     }
 }

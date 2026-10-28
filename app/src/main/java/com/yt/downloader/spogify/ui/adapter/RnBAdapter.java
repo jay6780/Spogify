@@ -52,10 +52,14 @@ public class RnBAdapter extends BaseQuickAdapter<RAndBbean.Artist, BaseViewHolde
             String cachedUrl = imageCache.get(artistName);
             loadImage(ivArtistImage, cachedUrl);
         } else {
-            Glide.with(mContext)
-                    .load(R.mipmap.app_logo)
-                    .into(ivArtistImage);
+            try {
+                Glide.with(mContext)
+                        .load(R.mipmap.app_logo)
+                        .into(ivArtistImage);
 
+            }catch (Exception e){
+                e.printStackTrace();
+            }
             fetchDeezerImage(artistName, ivArtistImage);
         }
 
@@ -105,12 +109,17 @@ public class RnBAdapter extends BaseQuickAdapter<RAndBbean.Artist, BaseViewHolde
     }
 
     private void loadImage(ImageView imageView, String imageUrl) {
-        Glide.with(mContext)
-                .asBitmap()
-                .apply(new RequestOptions()
-                        .placeholder(R.drawable.noimage)
-                        .error(R.drawable.noimage))
-                .load(imageUrl)
-                .into(imageView);
+        try {
+            Glide.with(mContext)
+                    .asBitmap()
+                    .apply(new RequestOptions()
+                            .placeholder(R.drawable.noimage)
+                            .error(R.drawable.noimage))
+                    .load(imageUrl)
+                    .into(imageView);
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
     }
 }

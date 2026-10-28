@@ -64,10 +64,13 @@ public class TopTrackAdapter extends BaseQuickAdapter<TopTrackBean.Track, BaseVi
             String cachedUrl = imageCache.get(artistName);
             loadImage(ivArtistImage, cachedUrl);
         } else {
-            Glide.with(mContext)
-                    .load(R.mipmap.app_logo)
-                    .into(ivArtistImage);
-
+            try {
+                Glide.with(mContext)
+                        .load(R.mipmap.app_logo)
+                        .into(ivArtistImage);
+            }catch (Exception e){
+                e.printStackTrace();
+            }
             fetchDeezerImage(artistName, ivArtistImage);
         }
 
