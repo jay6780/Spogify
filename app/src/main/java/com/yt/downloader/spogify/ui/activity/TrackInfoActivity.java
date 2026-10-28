@@ -95,7 +95,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private String ArtistName = "";
     private boolean mainDestroyed = false;
     private String currentLyricsTrackKey = "";
-    private boolean isDownload = false;
     private final ActivityResultLauncher<String> storagePermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
@@ -111,31 +110,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 // Permission outcome handled
             });
-
-
-    @Override
-    public void onNextTrackRequested() {
-        PlayerState s = PlayerState.get();
-        if (s.hasTrack && !s.queue.isEmpty() && findPlayingIndex() < 0) {
-            super.onNextTrackRequested();
-            return;
-        }
-        syncIndexFromPlayerState();
-        playNextTrack();
-    }
-
-    @Override
-    public void onPlaybackStateUpdated(boolean playing) {
-        syncIndexFromPlayerState();
-        if (binding != null) {
-            updateFabPlayPauseIcon();
-        }
-        updateAdapterTrackState();
-    }
-
-    // ---------------------------------------------------------------
-    // Lifecycle
-    // ---------------------------------------------------------------
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -192,7 +166,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
             loadFavoriteTracksOnly();
         } else {
             initBigImage(artistName);
-            isDownload = false;
             trackInfoPresenter.getTrackArtistQuery(AppConstant.TopTracksInfo, artistName, AppConstant.Api_Key, "json");
         }
 
@@ -200,21 +173,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         binding.btnFollow.setVisibility((isFromFavorite || isFromDownload) ? View.GONE : View.VISIBLE);
         binding.ivVerified.setVisibility((isFromFavorite || isFromDownload) ? View.GONE : View.VISIBLE);
     }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        new WindowUtils(this, false, false);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        syncIndexFromPlayerState();
-        updateAdapterTrackState();
-        checkCurrentTrackLyrics();
-    }
-
     private void checkNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -254,7 +212,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         trackInfoAdapter.setNewData(trackList);
 
         currentPlayingIndex = trackList.isEmpty() ? -1 : 0;
-        syncIndexFromPlayerState();
         updateAdapterTrackState();
     }
 
@@ -296,7 +253,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         trackInfoAdapter.setNewData(trackList);
 
         currentPlayingIndex = -1;
-        syncIndexFromPlayerState();
         updateAdapterTrackState();
     }
     private void updateFollowButtonUI() {
@@ -336,7 +292,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
         trackInfoAdapter.setOnTrackClickListener((track, position, isDownloaded) -> {
             currentPlayingIndex = position;
-            updateBigHeaderImage(track);
             if (isDownloaded || isFromDownload) {
 
                 File localAudio = filesExtractor.getDownloadedFile(track.getName());
@@ -354,7 +309,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
                 isDownloadingProcess = false;
                 String searchQuery = buildSearchQuery(track);
-                isDownload = true;
                 musicListPresenter.getSearchListQuery(searchQuery);
 
             }
@@ -375,6 +329,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         syncQueueToState();
 
         String localArtist = artistName == null ? "" : artistName;
+        requestLyrics(trackTitle,localArtist);
 
         if (isFromFavorite) {
             FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(trackTitle);
@@ -412,27 +367,8 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 displayArtist = "Favorite Track";
             }
         }
-        syncQueueToState();   // BEFORE playOnline, so the index is right when the hook fires
-        playOnline(videoId, title, displayArtist, thumbUrl);
-        updateAdapterTrackState();
-    }
-
-    private void playNextTrack() {
-        if (currentTrackList == null || currentTrackList.isEmpty()) return;
-
-        currentPlayingIndex = (currentPlayingIndex + 1) % currentTrackList.size();
-        TrackInfoBean.Track nextTrack = currentTrackList.get(currentPlayingIndex);
         syncQueueToState();
-        boolean isDownloaded = filesExtractor != null && filesExtractor.isFileDownloaded(nextTrack.getName());
-        updateBigHeaderImage(nextTrack);
-        if (isDownloaded || isFromDownload) {
-            isDownload = true;
-            File localAudio = filesExtractor.getDownloadedFile(nextTrack.getName());
-            if (localAudio != null) playLocalAudioFile(localAudio, nextTrack.getName());
-        } else {
-            updateAdapterTrackState();
-            musicListPresenter.getSearchListQuery(buildSearchQuery(nextTrack));
-        }
+        playOnline(videoId, title, displayArtist, thumbUrl);
     }
 
     private void checkPermissionAndDownload(TrackInfoBean.Track track) {
@@ -450,7 +386,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private void startDownloadFlow(TrackInfoBean.Track track) {
         isDownloadingProcess = true;
         currentDownloadTrack = track;
-        isDownload = true;
         String searchQuery = buildSearchQuery(track);
         musicListPresenter.getSearchListQuery(searchQuery);
     }
@@ -512,7 +447,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     private void updateAdapterTrackState() {
         if (trackInfoAdapter == null) return;
-
+        syncIndexFromPlayerState();
         PlayerState state = PlayerState.get();
 
         if (!state.hasTrack || currentTrackList == null
@@ -520,14 +455,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
             trackInfoAdapter.setPlayingTrackName("", false);
             return;
         }
-
         int index = findPlayingIndex();
-
         if (index >= 0) {
             TrackInfoBean.Track track = currentTrackList.get(index);
-
             if (track != null && !TextUtils.isEmpty(track.getName())) {
                 currentPlayingIndex = index;
+                updateBigHeaderImage(track);
                 trackInfoAdapter.setPlayingTrackName(track.getName(), true);
             } else {
                 trackInfoAdapter.setPlayingTrackName("", false);
@@ -535,14 +468,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         } else {
             trackInfoAdapter.setPlayingTrackName("", false);
         }
-    }
 
-    private void updateFabPlayPauseIcon() {
-        if (isPlaying) {
-            binding.fabPlay.setImageResource(android.R.drawable.ic_media_pause);
-        } else {
-            binding.fabPlay.setImageResource(android.R.drawable.ic_media_play);
-        }
     }
 
     private String normalize(String s) {
@@ -591,14 +517,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         return findTrackIndexByName(s.title);
     }
 
-    /** Sync currentPlayingIndex (and header image) with whatever is actually playing. */
-    private void syncIndexFromPlayerState() {
-        int idx = findPlayingIndex();
-        if (idx >= 0 && idx != currentPlayingIndex) {
-            currentPlayingIndex = idx;
-            if (binding != null) updateBigHeaderImage(currentTrackList.get(idx));
-        }
-    }
 
     private void initAppBarLayoutScrollListener() {
         binding.appBar.addOnOffsetChangedListener((appBarLayout, verticalOffset) -> {
@@ -748,27 +666,19 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
 
         if (s.hasTrack && findPlayingIndex() >= 0) {
-            syncIndexFromPlayerState();
             togglePlayPause();
             return;
         }
-
         isDownloadingProcess = false;
-        updateBigHeaderImage(activeTrack);
-        updateAdapterTrackState();
-
         String searchQuery = buildSearchQuery(activeTrack);
         musicListPresenter.getSearchListQuery(searchQuery);
     }
 
-    // ---------------------------------------------------------------
-    // MVP callbacks
-    // ---------------------------------------------------------------
 
     @Override
     public void showLoading() {
-        if(!isDownload){
-            if(hud !=null && !hud.isShowing()){
+        if(!isFromDownload){
+            if(hud !=null){
                 hud.show();
             }
         }
@@ -776,18 +686,18 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showError(String error) {
-        if(hud !=null && hud.isShowing()){
+        if(hud !=null){
             hud.dismiss();
         }
+        clearCurrentLyrics();
         if (!mainDestroyed) {
 //            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
-            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
+//            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
         }
     }
-
     @Override
     public void hideLoading() {
-        if(hud !=null && hud.isShowing()){
+        if (hud != null && hud.isShowing()) {
             hud.dismiss();
         }
     }
@@ -802,14 +712,8 @@ public class TrackInfoActivity extends MiniPlayerActivity
         applyLyrics(bean, musicName);
     }
 
-
-
     @Override
     protected void onDestroy() {
-        if (hud != null && hud.isShowing()) {
-            hud.dismiss();
-        }
-        hud = null;
         mainDestroyed = true;
         if (lyricsDatabaseHelper != null) {
             lyricsDatabaseHelper.close();
@@ -820,7 +724,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void getSearchList(YoutubeSearchBean youtubeSearchBean) {
-        if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && !youtubeSearchBean.getItems().isEmpty()) {
+        if (youtubeSearchBean != null && youtubeSearchBean.getItems() != null && youtubeSearchBean.getItems().size() !=0) {
             YoutubeSearchBean.ItemsBean item = youtubeSearchBean.getItems().get(0);
             if (isDownloadingProcess && currentDownloadTrack != null) {
                 String ytUrl = "https://www.youtube.com/watch?v=" + item.getId();
@@ -835,7 +739,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void getDownloadSuccess(Mp3downloadBean mp3downloadBean) {
-        if (mp3downloadBean != null && !TextUtils.isEmpty(mp3downloadBean.getDownloadUrl())) {
+        if (mp3downloadBean != null &&  mp3downloadBean.getDownloadUrl() !=null) {
             isDownloadingProcess = false;
             String downloadUrl = mp3downloadBean.getDownloadUrl();
             String trackName = currentDownloadTrack != null ? currentDownloadTrack.getName() : "downloaded_track";
@@ -882,6 +786,9 @@ public class TrackInfoActivity extends MiniPlayerActivity
     @Override
     public void getArtistTrackSuccess(TrackInfoBean trackInfoBean) {
         if (!isFromFavorite && !isFromDownload && trackInfoBean != null && trackInfoBean.getTopTracks() != null && trackInfoBean.getTopTracks().getTrackList() != null) {
+            if(trackInfoBean.getTopTracks().getTrackList().size() == 0){
+                return;
+            }
             List<TrackInfoBean.Track> trackList = trackInfoBean.getTopTracks().getTrackList();
             if (!trackList.isEmpty()) {
                 currentTrackList = trackList;
@@ -906,21 +813,15 @@ public class TrackInfoActivity extends MiniPlayerActivity
                         e.printStackTrace();
                     }
                 }
-
-                // The list arrived after the screen opened: highlight what is already playing
                 syncIndexFromPlayerState();
                 updateAdapterTrackState();
             }
         }
     }
-
-    /** Tapping the notification reopens Main, which always has the mini player. */
     @Override
     public String getTargetActivityName() {
         return MainActivity.class.getName();
     }
-
-    /** Publish this screen's track list so Next works from MainActivity / the notification. */
     private void syncQueueToState() {
         if (currentTrackList == null || currentTrackList.isEmpty()) return;
         PlayerState s = PlayerState.get();
@@ -942,65 +843,40 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
         s.queueIndex = currentPlayingIndex;
     }
-
-    @Override
-    public void onTrackChanged() {
-        syncIndexFromPlayerState();
-        updateAdapterTrackState();
-        checkCurrentTrackLyrics();
-    }
-
     private void checkCurrentTrackLyrics() {
-
         PlayerState state = PlayerState.get();
-
-        if (!state.hasTrack) {
+        if (TextUtils.isEmpty(state.artist) && TextUtils.isEmpty(state.title) && !state.hasTrack) {
             currentLyricsTrackKey = "";
             clearCurrentLyrics();
             return;
         }
-
         String trackKey = state.isLocal ? "local:" + state.localPath : "online:" + state.videoId;
-
         if (TextUtils.equals(currentLyricsTrackKey, trackKey)) {
             return;
         }
-
         currentLyricsTrackKey = trackKey;
-
         String title = state.title;
         String artist = state.artist == null ? "" : state.artist;
-
         if (state.queue != null && state.queueIndex >= 0 && state.queueIndex < state.queue.size()) {
-
             PlayerState.Item item = state.queue.get(state.queueIndex);
-
             if (item != null) {
-
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-
                 if (matches && !TextUtils.isEmpty(item.name)) {
                     title = item.name;
                 }
-
                 if (matches && !TextUtils.isEmpty(item.artist)) {
                     artist = item.artist;
                 }
             }
         }
-
         String musicTitle = cleanMusicTitle(title);
 //        Log.d("LYRICS_CACHE", "Track check: "
 //                + "Title=" + musicTitle
 //                + " | Artist=" + artist
 //                + " | Local=" + state.isLocal
 //                + " | Key=" + trackKey);
-        if (TextUtils.isEmpty(musicTitle)) {
-            clearCurrentLyrics();
-            return;
-        }
 
         requestLyrics(musicTitle, artist);
     }
@@ -1032,109 +908,100 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private void requestLyrics(String musicTitle, String artistName) {
         musicName = musicTitle;
         ArtistName = artistName == null ? "" : artistName;
-
-        if (TextUtils.isEmpty(musicName)) {
+        if (TextUtils.isEmpty(musicName) && TextUtils.isEmpty(ArtistName)) {
             clearCurrentLyrics();
             return;
         }
-
-        LyricsDatabaseHelper.CachedLyrics cachedLyrics =
-                lyricsDatabaseHelper.getLyrics(ArtistName, musicName);
-
-        if (cachedLyrics == null) {
-            cachedLyrics = lyricsDatabaseHelper.getLyricsByMusicName(musicName);
-        }
-
-        if (cachedLyrics != null) {
-
-//            Log.d("LYRICS_CACHE", "Loaded from SQLite: " + musicName + " | Artist: " + ArtistName);
-
-            applyCachedLyrics(cachedLyrics);
-
-            return;
-        }
-
-        clearCurrentLyrics();
-
         if (!isNetworkAvailable()) {
 //            Log.d("LYRICS_CACHE", "No cached lyrics and no internet: " + musicName);
             return;
         }
-
 //        Log.d("LYRICS_CACHE", "Requesting API: " + musicName + " | Artist: " + ArtistName);
-
         if (lyricsPresenter != null) {
-            isDownload = false;
             lyricsPresenter.getLyrics(musicName, ArtistName);
         }
     }
-    private void applyCachedLyrics(LyricsDatabaseHelper.CachedLyrics cachedLyrics) {
-
-        if (cachedLyrics == null || TextUtils.isEmpty(cachedLyrics.syncedLyrics)) {
-            clearCurrentLyrics();
-            return;
-        }
-
-        PlayerState s = PlayerState.get();
-
-        s.parsedLyrics = LrcParser.parse(cachedLyrics.syncedLyrics);
-        s.lyricsDurationSec = (float) cachedLyrics.duration;
-
-        super.onTrackChanged();
-//
-//        Log.d("LYRICS_CACHE", "Synced lyrics loaded successfully from database");
-    }
-
-
     private void applyLyrics(LyricsBean bean, String musicTitle) {
         if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
             clearCurrentLyrics();
             Toast.makeText(getApplicationContext(), "No synced lyrics: " + musicTitle, LENGTH_SHORT).show();
             return;
         }
-
         String syncedLyrics = bean.getSyncedLyrics();
         double duration = bean.getDuration();
-
         boolean saved = lyricsDatabaseHelper.saveLyrics(
                 ArtistName,
                 musicTitle,
                 syncedLyrics,
                 duration
         );
-
         if (saved) {
 //            Log.d("LYRICS_CACHE", "Lyrics saved to SQLite: " + musicTitle);
         }
-
         PlayerState s = PlayerState.get();
         s.parsedLyrics = LrcParser.parse(syncedLyrics);
         s.lyricsDurationSec = (float) duration;
-
         super.onTrackChanged();
     }
 
     private void clearCurrentLyrics() {
-
         PlayerState state = PlayerState.get();
-
         state.parsedLyrics = new ArrayList<>();
         state.lyricsDurationSec = 0f;
         if (karaokeLyricsController != null) {
             karaokeLyricsController.clear();
         }
-
-        if (mini != null && mini.tvMiniLyrics != null) {
-            mini.tvMiniLyrics.setVisibility(View.GONE);
-        }
+        mini.tvMiniLyrics.setVisibility(View.GONE);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
         if (trackInfoAdapter != null) {
-            trackInfoAdapter.onDeleteMusicResult(requestCode, resultCode);
+            if(isFromDownload){
+                loadDownloadedTracksOnly();
+                trackInfoAdapter.onDeleteMusicResult(requestCode, resultCode);
+            }
         }
     }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        new WindowUtils(this, false, false);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        checkCurrentTrackLyrics();
+        updateAdapterTrackState();
+    }
+
+    @Override
+    public void onTrackChanged() {
+        checkCurrentTrackLyrics();
+        updateAdapterTrackState();
+    }
+    private void syncIndexFromPlayerState() {
+        int idx = findPlayingIndex();
+        if (idx >= 0 && idx != currentPlayingIndex) {
+            currentPlayingIndex = idx;
+        }
+    }
+    @Override
+    public void onPlaybackStateUpdated(boolean playing) {
+        if (binding != null) {
+            updateFabPlayPauseIcon();
+        }
+        syncIndexFromPlayerState();
+    }
+    private void updateFabPlayPauseIcon() {
+        if (isPlaying) {
+            binding.fabPlay.setImageResource(android.R.drawable.ic_media_pause);
+        } else {
+            binding.fabPlay.setImageResource(android.R.drawable.ic_media_play);
+        }
+    }
+
 }

@@ -101,11 +101,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 } else {
                     mini.miniProgressBar.setProgress(0);
                 }
-
-                if (s.isLocal) {
+                if (isPlaying != s.isPlaying) {
                     isPlaying = s.isPlaying;
                     mini.ivMiniPlayPause.setImageResource(
                             isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+                    onPlaybackStateUpdated(isPlaying);
                 }
             }
 
@@ -432,6 +432,8 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 PlayerState.get().durationSec = duration;
                 sendStateToService(isPlaying);
                 applyLyricsOffset();
+                onTrackChanged();
+
             }
 
             @Override
@@ -466,14 +468,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         new NowPlayingDialog().show(getSupportFragmentManager(), "now_playing");
     }
 
-    public void seekToSec(float sec) {
-        if (isLocalPlayback) {
-            LocalAudioPlayer.getInstance().seekTo((long) (sec * 1000));
-        } else if (miniPlayer != null) {
-            miniPlayer.seekTo(sec);
-        }
-        PlayerState.get().positionSec = sec;
-    }
     private void attachLocalPlayerListener() {
         LocalAudioPlayer.getInstance().setPlayerStateListener(new LocalAudioPlayer.PlayerStateListener() {
             @Override
@@ -549,8 +543,8 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             LocalAudioPlayer.getInstance().stop();
         }
 
-        mini.ivMiniCover.setVisibility(View.GONE);
-        mini.miniYoutubePlayerView.setVisibility(View.VISIBLE);
+        mini.ivMiniCover.setVisibility(View.VISIBLE);
+        mini.miniYoutubePlayerView.setVisibility(View.GONE);
 
         currentPlayingVideoId = videoId;
         currentPlayingTitle = title;
@@ -662,21 +656,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             queuePresenter.getSearchListQuery((it.name + " " + it.artist).trim() + " official audio");
         }
     }
-
-    /**
-     * Toggle play / pause for whichever source is active.
-     */
-    public void togglePlayPause() {
-        if (!isLoadedHere() && resumeFromState()) return;
-
-        if (isLocalPlayback) {
-            LocalAudioPlayer.getInstance().togglePlayPause();
-        } else if (miniPlayer != null) {
-            if (isPlaying) miniPlayer.pause();
-            else miniPlayer.play();
-        }
-    }
-
     /**
      * Pause whichever source is active.
      */
@@ -923,12 +902,44 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         long offsetMs = 0;
         if (s.lyricsDurationSec > 0 && s.durationSec > 0) {
             float diff = s.durationSec - s.lyricsDurationSec;   // + = video longer
-            // ignore tiny differences and huge ones (probably a different version)
-            if (Math.abs(diff) >= 1.5f && Math.abs(diff) <= 30f) {
-                offsetMs = (long) (-diff * 1000);   // negative = lyrics appear later
+            if (Math.abs(diff) >= 0.5f && Math.abs(diff) <= 15f) {
+                offsetMs = (long) (-diff * 1000);
             }
         }
         karaokeLyricsController.setOffsetMs(offsetMs);
         s.lyricsOffsetMs = offsetMs;
+    }
+
+
+    private MiniPlayerActivity target() {
+        MiniPlayerActivity o = playbackOwner.get();
+        return (o != null && o != this && isAlive(o) && o.isLoadedHere()) ? o : this;
+    }
+
+    public void togglePlayPause() {
+        MiniPlayerActivity t = target();
+        if (t != this) { t.togglePlayPause(); return; }
+
+        if (!isLoadedHere() && resumeFromState()) return;
+
+        if (isLocalPlayback) {
+            LocalAudioPlayer.getInstance().togglePlayPause();
+        } else if (miniPlayer != null) {
+            if (isPlaying) miniPlayer.pause();
+            else miniPlayer.play();
+        }
+    }
+
+    public void seekToSec(float sec) {
+        MiniPlayerActivity t = target();
+        if (t != this) { t.seekToSec(sec); return; }
+
+        if (isLocalPlayback) {
+            LocalAudioPlayer.getInstance().seekTo((long) (sec * 1000));
+        } else if (miniPlayer != null) {
+            miniPlayer.seekTo(sec);
+        }
+        currentSecond = sec;
+        PlayerState.get().positionSec = sec;
     }
 }

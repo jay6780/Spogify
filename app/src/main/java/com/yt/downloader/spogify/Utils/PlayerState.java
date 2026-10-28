@@ -43,6 +43,7 @@ public class PlayerState {
     public float durationSec = 0f;
     public float lyricsDurationSec = 0f;
     public long lyricsOffsetMs = 0;
+    public long userLyricsOffsetMs = 0;
     // Active track lyrics
     public List<LrcParser.Line> parsedLyrics = new ArrayList<>();
 

@@ -89,10 +89,10 @@ public class HomeFragment extends Fragment implements HomeContract.View {
             topTrackList.clear();
             opmList.clear();
             RnbList.clear();
-            topArtistAdapter.setNewData(topArtistList);
-            topTrackAdapter.setNewData(topTrackList);
-            opmAdapter.setNewData(opmList);
-            rnBAdapter.setNewData(RnbList);
+            topArtistAdapter.setNewData(new ArrayList<>());
+            topTrackAdapter.setNewData(new ArrayList<>());
+            opmAdapter.setNewData(new ArrayList<>());
+            rnBAdapter.setNewData(new ArrayList<>());
 
             binding.rvTopArtists.scrollToPosition(0);
             binding.rvTopTracks.scrollToPosition(0);
@@ -166,7 +166,7 @@ public class HomeFragment extends Fragment implements HomeContract.View {
 
     @Override
     public void getTopArtistSuccess(TopArtistBean bean) {
-        if (bean != null && bean.getArtists() != null && !bean.getArtists().getArtist().isEmpty()) {
+        if (bean != null && bean.getArtists().getArtist()!= null && bean.getArtists().getArtist().size() !=0) {
             topArtistList.addAll(bean.getArtists().getArtist());
             topArtistAdapter.setNewData(topArtistList);
             binding.llTopArtist.setVisibility(View.VISIBLE);
@@ -177,7 +177,7 @@ public class HomeFragment extends Fragment implements HomeContract.View {
 
     @Override
     public void getTopTracksSuccess(TopTrackBean topTrackBean) {
-        if (topTrackBean != null && topTrackBean.getTracks() != null && !topTrackBean.getTracks().getTrack().isEmpty()) {
+        if (topTrackBean != null && topTrackBean.getTracks().getTrack() != null && topTrackBean.getTracks().getTrack().size() !=0) {
             topTrackList.addAll(topTrackBean.getTracks().getTrack());
             topTrackAdapter.setNewData(topTrackList);
             binding.llTopTracks.setVisibility(View.VISIBLE);
@@ -188,7 +188,7 @@ public class HomeFragment extends Fragment implements HomeContract.View {
 
     @Override
     public void getOpmSuccess(OpmBean opmBean) {
-        if (opmBean != null && opmBean.getTopArtists() != null && !opmBean.getTopArtists().getArtist().isEmpty()) {
+        if (opmBean != null && opmBean.getTopArtists().getArtist() != null && opmBean.getTopArtists().getArtist().size() !=0) {
             opmList.addAll(opmBean.getTopArtists().getArtist());
             opmAdapter.setNewData(opmList);
             binding.llOpm.setVisibility(View.VISIBLE);
@@ -199,7 +199,7 @@ public class HomeFragment extends Fragment implements HomeContract.View {
 
     @Override
     public void getRnBSuccess(RAndBbean rAndBbean) {
-        if (rAndBbean != null && rAndBbean.getTopArtists() != null && !rAndBbean.getTopArtists().getArtist().isEmpty()) {
+        if (rAndBbean != null && rAndBbean.getTopArtists().getArtist() != null && rAndBbean.getTopArtists().getArtist().size() !=0) {
             RnbList.addAll(rAndBbean.getTopArtists().getArtist());
             rnBAdapter.setNewData(RnbList);
             binding.llRnb.setVisibility(View.VISIBLE);

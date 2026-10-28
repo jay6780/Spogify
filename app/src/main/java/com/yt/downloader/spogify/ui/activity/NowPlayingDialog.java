@@ -53,7 +53,7 @@ public class NowPlayingDialog extends DialogFragment {
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setStyle(STYLE_NORMAL, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        setStyle(STYLE_NORMAL, android.R.style.Theme_Black_NoTitleBar);
     }
     @Nullable
     @Override
@@ -93,30 +93,28 @@ public class NowPlayingDialog extends DialogFragment {
     @Override
     public void onStart() {
         super.onStart();
-
         if (getDialog() != null && getDialog().getWindow() != null) {
-            Window w = getDialog().getWindow();
-
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+            getDialog().getWindow().setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT);
-
-            w.setFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                    android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
-            );
 
             int c = colorFor(PlayerState.get().title);
             color = c;
-
-            if (b != null) {
-                b.root.setBackgroundColor(c);
-            }
+            if (b != null) b.root.setBackgroundColor(c);
+            applyBarColors(c);
         }
-
         handler.removeCallbacks(tick);
         handler.post(tick);
     }
-
+    private void applyBarColors(int c) {
+        if (getDialog() == null || getDialog().getWindow() == null) return;
+        Window w = getDialog().getWindow();
+        w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
+                | android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
+        w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        w.setStatusBarColor(c);
+        w.setNavigationBarColor(c);
+    }
     @Override
     public void onStop() {
         handler.removeCallbacks(tick);
@@ -144,6 +142,7 @@ public class NowPlayingDialog extends DialogFragment {
             if (c != color) {
                 color = c;
                 b.root.setBackgroundColor(c);
+                applyBarColors(c);
             }
 
             b.tvTitle.setText(s.title);

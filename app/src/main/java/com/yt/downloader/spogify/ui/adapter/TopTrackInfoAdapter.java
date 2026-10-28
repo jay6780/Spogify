@@ -142,18 +142,21 @@ public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, B
         tv_track_title.setText(item.getName());
         String playCount = item.getPlaycount();
 
-        if (playCount != null) {
-            try {
-                long count = Long.parseLong(playCount.trim());
-                tv_play_count.setText(new FormatCountUtil().formatListenerCount(count));
-            } catch (NumberFormatException e) {
+        if(isDownloaded){
+            tv_play_count.setText("Downloaded");
+        }else{
+            if (playCount != null) {
+                try {
+                    long count = Long.parseLong(playCount.trim());
+                    tv_play_count.setText(new FormatCountUtil().formatListenerCount(count));
+                } catch (NumberFormatException e) {
+                    tv_play_count.setText("0 listeners");
+                }
+            } else {
                 tv_play_count.setText("0 listeners");
             }
-        } else {
-            tv_play_count.setText("0 listeners");
+
         }
-
-
         if (isCurrentPlaying && isPlaying) {
             tv_track_title.setTextColor(Color.parseColor("#1DB954"));
             tv_rank.setVisibility(View.GONE);

@@ -12,7 +12,6 @@ import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
 
@@ -36,8 +35,7 @@ import com.yt.downloader.spogify.ui.fragment.PlayListFragment;
 import com.yt.downloader.spogify.ui.fragment.SearchFragment;
 
 import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+
 import com.yt.downloader.spogify.Utils.LyricsDatabaseHelper;
 public class MainActivity extends MiniPlayerActivity implements View.OnClickListener, LyricsContract.View {
 
@@ -229,6 +227,7 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
 
     @Override
     public void showError(String error) {
+        clearCurrentLyrics();
         if (!mainDestroyed) {
 //            Log.e("LYRICS_DEBUG", "Lyrics error: " + error);
 //            Toast.makeText(getApplicationContext(),"Lyrics not found",Toast.LENGTH_SHORT).show();
@@ -242,69 +241,48 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
 
     @Override
     public void getLyricsSuccess(LyricsBean bean) {
+        clearCurrentLyrics();
         if (mainDestroyed) return;
-
         PlayerState s = PlayerState.get();
         if (!s.hasTrack) return;
-
         String playingKey = s.isLocal ? "local:" + s.localPath : "online:" + s.videoId;
         if (!TextUtils.equals(currentLyricsTrackKey, playingKey)) return;
-
         applyLyrics(bean, musicName);
     }
-
     private void checkCurrentTrackLyrics() {
-
         PlayerState state = PlayerState.get();
-
-        if (!state.hasTrack) {
+        if (TextUtils.isEmpty(state.artist) && TextUtils.isEmpty(state.title) && !state.hasTrack) {
             currentLyricsTrackKey = "";
             clearCurrentLyrics();
             return;
         }
-
         String trackKey = state.isLocal ? "local:" + state.localPath : "online:" + state.videoId;
-
         if (TextUtils.equals(currentLyricsTrackKey, trackKey)) {
             return;
         }
-
         currentLyricsTrackKey = trackKey;
-
         String title = state.title;
         String artist = state.artist == null ? "" : state.artist;
-
         if (state.queue != null && state.queueIndex >= 0 && state.queueIndex < state.queue.size()) {
-
             PlayerState.Item item = state.queue.get(state.queueIndex);
-
             if (item != null) {
-
                 boolean matches = state.isLocal
                         ? TextUtils.equals(item.localPath, state.localPath)
                         : TextUtils.equals(item.videoId, state.videoId);
-
                 if (matches && !TextUtils.isEmpty(item.name)) {
                     title = item.name;
                 }
-
                 if (matches && !TextUtils.isEmpty(item.artist)) {
                     artist = item.artist;
                 }
             }
         }
-
         String musicTitle = cleanMusicTitle(title);
-
-        if (TextUtils.isEmpty(musicTitle)) {
-            clearCurrentLyrics();
-            return;
-        }
-
-//        Log.d("LYRICS_CACHE", "MainActivity Track: "
-//                + musicTitle
-//                + " | Artist: " + artist
-//                + " | Local: " + state.isLocal);
+//        Log.d("LYRICS_CACHE", "Track check: "
+//                + "Title=" + musicTitle
+//                + " | Artist=" + artist
+//                + " | Local=" + state.isLocal
+//                + " | Key=" + trackKey);
 
         requestLyrics(musicTitle, artist);
     }
@@ -337,71 +315,18 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
     private void requestLyrics(String musicTitle, String artistName) {
         musicName = musicTitle;
         ArtistName = artistName == null ? "" : artistName;
-
         if (TextUtils.isEmpty(musicName)) {
             clearCurrentLyrics();
             return;
         }
-
-        LyricsDatabaseHelper.CachedLyrics cachedLyrics =
-                lyricsDatabaseHelper.getLyrics(ArtistName, musicName);
-
-        if (cachedLyrics == null) {
-            cachedLyrics = lyricsDatabaseHelper.getLyricsByMusicName(musicName);
-        }
-
-        if (cachedLyrics != null) {
-//
-//            Log.d("LYRICS_CACHE", "MainActivity SQLite HIT: "
-//                    + musicName + " | Artist: " + ArtistName);
-
-            applyCachedLyrics(cachedLyrics);
-
-            return;
-        }
-
-        PlayerState state = PlayerState.get();
-
-        if (state.parsedLyrics != null && !state.parsedLyrics.isEmpty()) {
-//
-//            Log.d("LYRICS_CACHE", "Using existing PlayerState lyrics: " + musicName);
-
-            super.onTrackChanged();
-
-            return;
-        }
-
-        clearCurrentLyrics();
-
         if (!isNetworkAvailable()) {
-//
-//            Log.d("LYRICS_CACHE", "Offline and no cached lyrics: " + musicName);
-
+//            Log.d("LYRICS_CACHE", "No cached lyrics and no internet: " + musicName);
             return;
         }
-
-//        Log.d("LYRICS_CACHE", "MainActivity API REQUEST: "
-//                + musicName + " | Artist: " + ArtistName);
-
+//        Log.d("LYRICS_CACHE", "Requesting API: " + musicName + " | Artist: " + ArtistName);
         if (lyricsPresenter != null) {
             lyricsPresenter.getLyrics(musicName, ArtistName);
         }
-    }
-    private void applyCachedLyrics(LyricsDatabaseHelper.CachedLyrics cachedLyrics) {
-
-        if (cachedLyrics == null || TextUtils.isEmpty(cachedLyrics.syncedLyrics)) {
-            clearCurrentLyrics();
-            return;
-        }
-
-        PlayerState s = PlayerState.get();
-
-        s.parsedLyrics = LrcParser.parse(cachedLyrics.syncedLyrics);
-        s.lyricsDurationSec = (float) cachedLyrics.duration;
-
-        super.onTrackChanged();
-
-//        Log.d("LYRICS_CACHE", "Synced lyrics loaded successfully from database");
     }
     private void applyLyrics(LyricsBean bean, String musicTitle) {
         if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
@@ -439,9 +364,6 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
         state.lyricsDurationSec = 0f;
         if (karaokeLyricsController != null) {
             karaokeLyricsController.clear();
-        }
-
-        if (mini != null && mini.tvMiniLyrics != null) {
             mini.tvMiniLyrics.setVisibility(View.GONE);
         }
     }
