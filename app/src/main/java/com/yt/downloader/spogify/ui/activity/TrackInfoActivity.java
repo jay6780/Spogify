@@ -82,10 +82,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private TrackInfoBean.Track currentDownloadTrack;
     private FilesExtractor filesExtractor;
     private KProgressHUD hud;
-    private String musicName = "";
-    private String ArtistName = "";
     private boolean mainDestroyed = false;
-    private String currentLyricsTrackKey = "";
     private final ActivityResultLauncher<String> storagePermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) {
@@ -140,7 +137,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         initAppBarLayoutScrollListener();
         initRecycler();
 
-        // Mini player (online + local) lives in MiniPlayerActivity
         bindMiniPlayer(binding.layoutMiniPlayer);
 
         updateFollowButtonUI();
@@ -670,12 +666,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showLoading() {
-        if(!isFromDownload){
-            if(hud !=null){
-                hud.show();
-            }
+        if(!isDownloadingProcess){
+            hud.show();
         }
+
     }
+
 
     @Override
     public void showError(String error) {
@@ -835,6 +831,12 @@ public class TrackInfoActivity extends MiniPlayerActivity
             if(isFromDownload){
                 loadDownloadedTracksOnly();
                 trackInfoAdapter.onDeleteMusicResult(requestCode, resultCode);
+            }else{
+                if(currentTrackList == null){
+                    return;
+                }
+                trackInfoAdapter.onDeleteMusicResult(requestCode, resultCode);
+                trackInfoAdapter.setNewData(currentTrackList);
             }
         }
     }
@@ -848,9 +850,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
     @Override
     protected void onResume() {
         super.onResume();
-        if(hud !=null){
-            hud.dismiss();
-        }
         updateAdapterTrackState();
     }
 

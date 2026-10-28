@@ -38,7 +38,7 @@ import android.provider.MediaStore;
 import android.net.Uri;
 import android.app.Activity;
 import java.io.File;
-
+@SuppressLint("NotifyDataSetChanged")
 public class TopTrackInfoAdapter extends BaseQuickAdapter<TrackInfoBean.Track, BaseViewHolder> {
     private static final int DELETE_REQUEST_CODE = 5012;
 
