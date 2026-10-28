@@ -1,14 +1,19 @@
 package com.yt.downloader.spogify.ui.activity;
 
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
@@ -21,15 +26,17 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.yt.downloader.databinding.DialogNowPlayingBinding;
 import com.yt.downloader.spogify.Utils.LrcParser;
+import com.yt.downloader.spogify.Utils.LyricsDatabaseHelper;
 import com.yt.downloader.spogify.Utils.PlayerState;
+import com.yt.downloader.spogify.mvp.bean.LyricsBean;
+import com.yt.downloader.spogify.mvp.contract.LyricsContract;
+import com.yt.downloader.spogify.mvp.presenter.LyricsPresenter;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-public class NowPlayingDialog extends DialogFragment {
-
-    /** Same title always gives the same colour, so mini player and full screen match. */
+public class NowPlayingDialog extends DialogFragment implements LyricsContract.View {
     public static int colorFor(String seed) {
         int h = (seed == null ? "" : seed).hashCode() & 0x7fffffff;
         float hue = h % 360;
@@ -46,6 +53,10 @@ public class NowPlayingDialog extends DialogFragment {
     private int color = 0;
     private boolean dragging = false;
 
+    private LyricsPresenter lyricsPresenter;
+    private LyricsDatabaseHelper lyricsDatabaseHelper;
+    private String lastLoadedTrackKey = "";
+
     private MiniPlayerActivity host() {
         return (MiniPlayerActivity) requireActivity();
     }
@@ -55,11 +66,15 @@ public class NowPlayingDialog extends DialogFragment {
         super.onCreate(savedInstanceState);
         setStyle(STYLE_NORMAL, android.R.style.Theme_Black_NoTitleBar);
     }
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         b = DialogNowPlayingBinding.inflate(inflater, container, false);
+
+        lyricsPresenter = new LyricsPresenter(this);
+        lyricsDatabaseHelper = new LyricsDatabaseHelper(requireContext());
 
         lm = new LinearLayoutManager(requireContext());
         b.rvLyrics.setLayoutManager(lm);
@@ -106,6 +121,7 @@ public class NowPlayingDialog extends DialogFragment {
         handler.removeCallbacks(tick);
         handler.post(tick);
     }
+
     private void applyBarColors(int c) {
         if (getDialog() == null || getDialog().getWindow() == null) return;
         Window w = getDialog().getWindow();
@@ -115,6 +131,7 @@ public class NowPlayingDialog extends DialogFragment {
         w.setStatusBarColor(c);
         w.setNavigationBarColor(c);
     }
+
     @Override
     public void onStop() {
         handler.removeCallbacks(tick);
@@ -124,6 +141,10 @@ public class NowPlayingDialog extends DialogFragment {
     @Override
     public void onDestroyView() {
         handler.removeCallbacks(tick);
+        if (lyricsDatabaseHelper != null) {
+            lyricsDatabaseHelper.close();
+            lyricsDatabaseHelper = null;
+        }
         b = null;
         super.onDestroyView();
     }
@@ -136,6 +157,11 @@ public class NowPlayingDialog extends DialogFragment {
             if (!s.hasTrack) {
                 dismiss();
                 return;
+            }
+            String trackKey = s.isLocal ? "local:" + s.localPath : "online:" + s.videoId;
+            if (!TextUtils.equals(lastLoadedTrackKey, trackKey)) {
+                lastLoadedTrackKey = trackKey;
+                checkAndFetchLyricsForCurrentTrack(s);
             }
 
             int c = colorFor(s.title);
@@ -150,14 +176,16 @@ public class NowPlayingDialog extends DialogFragment {
             b.ivPlay.setImageResource(s.isPlaying
                     ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
 
-            // lyrics (they arrive async, so compare the list instance)
+            // lyrics
             if (s.parsedLyrics != shown) {
                 shown = s.parsedLyrics;
                 adapter.setData(shown);
                 curIdx = -1;
             }
             boolean hasLyrics = shown != null && !shown.isEmpty();
-            b.tvEmpty.setVisibility(hasLyrics ? View.GONE : View.VISIBLE);
+            boolean isLoading = b.progressBar.getVisibility() == View.VISIBLE;
+
+            b.tvEmpty.setVisibility(!isLoading && !hasLyrics ? View.VISIBLE : View.GONE);
 
             if (hasLyrics) {
                 long t = (long) (s.positionSec * 1000) + s.lyricsOffsetMs;
@@ -180,11 +208,113 @@ public class NowPlayingDialog extends DialogFragment {
         }
     };
 
+    private void checkAndFetchLyricsForCurrentTrack(PlayerState s) {
+        if (TextUtils.isEmpty(s.title)) return;
+
+        String title = s.title;
+        String artist = s.artist == null ? "" : s.artist;
+
+        if (s.queue != null && s.queueIndex >= 0 && s.queueIndex < s.queue.size()) {
+            PlayerState.Item item = s.queue.get(s.queueIndex);
+            if (item != null) {
+                if (!TextUtils.isEmpty(item.name)) title = item.name;
+                if (!TextUtils.isEmpty(item.artist)) artist = item.artist;
+            }
+        }
+
+        String musicTitle = cleanMusicTitle(title);
+
+        if (lyricsDatabaseHelper != null) {
+            LyricsDatabaseHelper.CachedLyrics cached = lyricsDatabaseHelper.getLyrics(artist, musicTitle);
+            if (cached == null) {
+                cached = lyricsDatabaseHelper.getLyricsByMusicName(musicTitle);
+            }
+
+            if (cached != null && !TextUtils.isEmpty(cached.syncedLyrics)) {
+                s.parsedLyrics = LrcParser.parse(cached.syncedLyrics);
+                s.setLyrics(cached.syncedLyrics);
+                s.setDuration(cached.duration);
+                s.lyricsDurationSec = (float) cached.duration;
+                hideLoading();
+                return;
+            }
+        }
+
+        if (isNetworkAvailable() && lyricsPresenter != null) {
+            showLoading();
+            lyricsPresenter.getLyrics(musicTitle, artist);
+        } else {
+            hideLoading();
+        }
+    }
+
+    private String cleanMusicTitle(String title) {
+        if (TextUtils.isEmpty(title)) return "";
+        String clean = title.trim();
+        String junk = "official|lyrics?|audio|video|visualizer|remaster(ed)?|feat\\.?|ft\\.?";
+        clean = clean.replaceAll("(?i)\\([^)]*(" + junk + ")[^)]*\\)", "");
+        clean = clean.replaceAll("(?i)\\[[^]]*(" + junk + ")[^]]*\\]", "");
+        if (clean.contains(" - ")) {
+            String[] parts = clean.split(" - ", 2);
+            clean = parts[1].trim();
+        }
+        clean = clean.replaceAll("(?i)\\s+(official\\s+)?(lyrics?|music video|audio|visualizer)\\s*$", "");
+        return clean.trim();
+    }
+
+    private boolean isNetworkAvailable() {
+        ConnectivityManager cm = (ConnectivityManager) requireContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm != null ? cm.getActiveNetworkInfo() : null;
+        return activeNetwork != null && activeNetwork.isConnected();
+    }
+
+
+    @Override
+    public void getLyricsSuccess(LyricsBean bean) {
+        hideLoading();
+        if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) return;
+
+        String syncedLyrics = bean.getSyncedLyrics();
+        double duration = bean.getDuration();
+        PlayerState s = PlayerState.get();
+
+        if (lyricsDatabaseHelper != null && !TextUtils.isEmpty(s.title)) {
+            lyricsDatabaseHelper.saveLyrics(s.artist, cleanMusicTitle(s.title), syncedLyrics, duration);
+        }
+
+        s.parsedLyrics = LrcParser.parse(syncedLyrics);
+        s.setLyrics(syncedLyrics);
+        s.setDuration(duration);
+        s.lyricsDurationSec = (float) duration;
+    }
+
+    @Override
+    public void showLoading() {
+        if (b != null && b.progressBar != null) {
+            b.progressBar.setVisibility(View.VISIBLE);
+            b.tvEmpty.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void hideLoading() {
+        if (b != null && b.progressBar != null) {
+            b.progressBar.setVisibility(View.GONE);
+        }
+    }
+
+    @Override
+    public void showError(String error) {
+        hideLoading();
+        PlayerState s = PlayerState.get();
+        s.parsedLyrics = Collections.emptyList();
+    }
+
     private void centerOn(int pos) {
         LinearSmoothScroller sc = new LinearSmoothScroller(requireContext()) {
             @Override
             public int calculateDtToFit(int vs, int ve, int bs, int be, int snap) {
-                return (bs + (be - bs) / 2) - (vs + (ve - vs) / 2);   // put the line in the middle
+                return (bs + (be - bs) / 2) - (vs + (ve - vs) / 2);
             }
         };
         sc.setTargetPosition(pos);
@@ -209,8 +339,6 @@ public class NowPlayingDialog extends DialogFragment {
         int s = Math.max(0, (int) sec);
         return String.format(Locale.US, "%d:%02d", s / 60, s % 60);
     }
-
-    // ------------------------------------------------------------------
 
     private class LyricsAdapter extends RecyclerView.Adapter<LyricsAdapter.VH> {
         private List<LrcParser.Line> data = Collections.emptyList();
@@ -257,7 +385,6 @@ public class NowPlayingDialog extends DialogFragment {
             h.tv.setText(line.text.isEmpty() ? "♪" : line.text);
             h.tv.setTextSize(on ? 24 : 18);
             h.tv.setTextColor(on ? 0xFFFFFFFF : 0x99FFFFFF);
-            // tap a line to jump to it
             h.tv.setOnClickListener(v ->
                     host().seekToSec(Math.max(0, line.timeMs - PlayerState.get().lyricsOffsetMs) / 1000f));
         }

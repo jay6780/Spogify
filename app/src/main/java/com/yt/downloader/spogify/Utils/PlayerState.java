@@ -35,6 +35,9 @@ public class PlayerState {
     public boolean isLocal = false;
     public boolean isPlaying = false;
     public String videoId = "";
+    public String lyrics = "";
+
+    public double duration = 0;
     public String localPath = "";
     public String title = "";
     public String artist = "";
@@ -50,4 +53,20 @@ public class PlayerState {
     // Shared queue: used by Next from any screen or from the notification
     public final List<Item> queue = new ArrayList<>();
     public int queueIndex = -1;
+
+    public double getDuration() {
+        return duration;
+    }
+
+    public void setDuration(double duration) {
+        this.duration = duration;
+    }
+
+    public String getLyrics() {
+        return lyrics;
+    }
+
+    public void setLyrics(String lyrics) {
+        this.lyrics = lyrics;
+    }
 }

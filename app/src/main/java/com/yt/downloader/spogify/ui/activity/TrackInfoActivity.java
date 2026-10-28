@@ -3,18 +3,13 @@ package com.yt.downloader.spogify.ui.activity;
 import static android.widget.Toast.LENGTH_SHORT;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
-import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -35,21 +30,17 @@ import com.yt.downloader.spogify.Utils.DownloadTrackModel;
 import com.yt.downloader.spogify.Utils.FavoriteDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FollowDatabaseHelper;
 import com.yt.downloader.spogify.Utils.FormatCountUtil;
-import com.yt.downloader.spogify.Utils.LrcParser;
 import com.yt.downloader.spogify.Utils.PlayerState;
 import com.yt.downloader.spogify.Utils.WindowUtils;
 import com.yt.downloader.spogify.Utils.fileUtils.FilesExtractor;
 import com.yt.downloader.spogify.Utils.fileUtils.VideoFile;
 import com.yt.downloader.spogify.mvp.bean.DeezerArtistBean;
 import com.yt.downloader.spogify.mvp.bean.FavoriteTrack;
-import com.yt.downloader.spogify.mvp.bean.LyricsBean;
 import com.yt.downloader.spogify.mvp.bean.Mp3downloadBean;
 import com.yt.downloader.spogify.mvp.bean.TrackInfoBean;
 import com.yt.downloader.spogify.mvp.bean.YoutubeSearchBean;
-import com.yt.downloader.spogify.mvp.contract.LyricsContract;
 import com.yt.downloader.spogify.mvp.contract.MusicListContract;
 import com.yt.downloader.spogify.mvp.contract.TrackInfoContract;
-import com.yt.downloader.spogify.mvp.presenter.LyricsPresenter;
 import com.yt.downloader.spogify.mvp.presenter.MusicListPresenter;
 import com.yt.downloader.spogify.mvp.presenter.TrackInfoPresenter;
 import com.yt.downloader.spogify.ui.adapter.TopTrackInfoAdapter;
@@ -66,8 +57,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import com.yt.downloader.spogify.Utils.LyricsDatabaseHelper;
+
 public class TrackInfoActivity extends MiniPlayerActivity
-        implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View, LyricsContract.View {
+        implements View.OnClickListener, TrackInfoContract.View, MusicListContract.View {
 
     private ActivityTrackInfoBinding binding;
     private String artistName;
@@ -90,7 +82,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
     private TrackInfoBean.Track currentDownloadTrack;
     private FilesExtractor filesExtractor;
     private KProgressHUD hud;
-    private LyricsPresenter lyricsPresenter;
     private String musicName = "";
     private String ArtistName = "";
     private boolean mainDestroyed = false;
@@ -158,7 +149,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
                 .setLabel("Please wait");
         trackInfoPresenter = new TrackInfoPresenter(this);
         musicListPresenter = new MusicListPresenter(this);
-        lyricsPresenter = new LyricsPresenter(this);
         lyricsDatabaseHelper = new LyricsDatabaseHelper(this);
         if (isFromDownload) {
             loadDownloadedTracksOnly();
@@ -333,8 +323,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         syncQueueToState();
 
         String localArtist = artistName == null ? "" : artistName;
-        requestLyrics(trackTitle,localArtist);
-
         if (isFromFavorite) {
             FavoriteTrack fav = favDbHelper.getFavoriteTrackByName(trackTitle);
             if (fav != null && !TextUtils.isEmpty(fav.getArtistName())) {
@@ -356,9 +344,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
 
         playLocal(file, trackTitle, localArtist);
-
-        checkCurrentTrackLyrics();
-
         updateAdapterTrackState();
     }
     private void playVideoInMiniPlayer(String videoId, String title, String thumbUrl) {
@@ -694,7 +679,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
 
     @Override
     public void showError(String error) {
-        clearCurrentLyrics();
         if(hud !=null){
             hud.dismiss();
         }
@@ -710,15 +694,6 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
     }
 
-    @Override
-    public void getLyricsSuccess(LyricsBean bean) {
-        if (mainDestroyed) return;
-        PlayerState s = PlayerState.get();
-        if (!s.hasTrack) return;
-        String playingKey = s.isLocal ? "local:" + s.localPath : "online:" + s.videoId;
-        if (!TextUtils.equals(currentLyricsTrackKey, playingKey)) return;
-        applyLyrics(bean, musicName);
-    }
 
     @Override
     protected void onDestroy() {
@@ -851,121 +826,7 @@ public class TrackInfoActivity extends MiniPlayerActivity
         }
         s.queueIndex = currentPlayingIndex;
     }
-    private void checkCurrentTrackLyrics() {
-        PlayerState state = PlayerState.get();
-        if (TextUtils.isEmpty(state.artist) && TextUtils.isEmpty(state.title) && !state.hasTrack) {
-            currentLyricsTrackKey = "";
-            clearCurrentLyrics();
-            return;
-        }
-        String trackKey = state.isLocal ? "local:" + state.localPath : "online:" + state.videoId;
-        if (TextUtils.equals(currentLyricsTrackKey, trackKey)) {
-            return;
-        }
-        currentLyricsTrackKey = trackKey;
-        String title = state.title;
-        String artist = state.artist == null ? "" : state.artist;
-        if (state.queue != null && state.queueIndex >= 0 && state.queueIndex < state.queue.size()) {
-            PlayerState.Item item = state.queue.get(state.queueIndex);
-            if (item != null) {
-                boolean matches = state.isLocal
-                        ? TextUtils.equals(item.localPath, state.localPath)
-                        : TextUtils.equals(item.videoId, state.videoId);
-                if (matches) {
-                    if (!TextUtils.isEmpty(item.name) && !TextUtils.isEmpty(item.artist)) {
-                        title = item.name;
-                        artist = item.artist;
-                    }
-                }else{
-                    if(hud !=null){
-                        hud.dismiss();
-                    }
-                    clearCurrentLyrics();
-                }
-            }
-        }
-        String musicTitle = cleanMusicTitle(title);
-//        Log.d("LYRICS_CACHE", "Track check: "
-//                + "Title=" + musicTitle
-//                + " | Artist=" + artist
-//                + " | Local=" + state.isLocal
-//                + " | Key=" + trackKey);
 
-        requestLyrics(musicTitle, artist);
-    }
-    @SuppressWarnings("deprecation")
-    @SuppressLint("MissingPermission")
-    private boolean isNetworkAvailable() {
-        ConnectivityManager connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkInfo activeNetworkInfo = connectivityManager != null ? connectivityManager.getActiveNetworkInfo() : null;
-        return activeNetworkInfo != null && activeNetworkInfo.isConnected();
-    }
-    private String cleanMusicTitle(String title) {
-        if (TextUtils.isEmpty(title)) return "";
-
-        String clean = title.trim();
-
-        String junk = "official|lyrics?|audio|video|visualizer|remaster(ed)?|feat\\.?|ft\\.?";
-        clean = clean.replaceAll("(?i)\\([^)]*(" + junk + ")[^)]*\\)", "");
-        clean = clean.replaceAll("(?i)\\[[^]]*(" + junk + ")[^]]*\\]", "");
-
-        if (clean.contains(" - ")) {
-            String[] parts = clean.split(" - ", 2);
-            clean = parts[1].trim();
-        }
-
-        clean = clean.replaceAll("(?i)\\s+(official\\s+)?(lyrics?|music video|audio|visualizer)\\s*$", "");
-
-        return clean.trim();
-    }
-    private void requestLyrics(String musicTitle, String artistName) {
-        musicName = musicTitle;
-        ArtistName = artistName == null ? "" : artistName;
-        if (TextUtils.isEmpty(musicName) && TextUtils.isEmpty(ArtistName)) {
-            clearCurrentLyrics();
-            return;
-        }
-        if (!isNetworkAvailable()) {
-//            Log.d("LYRICS_CACHE", "No cached lyrics and no internet: " + musicName);
-            return;
-        }
-//        Log.d("LYRICS_CACHE", "Requesting API: " + musicName + " | Artist: " + ArtistName);
-        if (lyricsPresenter != null) {
-            lyricsPresenter.getLyrics(musicName, ArtistName);
-        }
-    }
-    private void applyLyrics(LyricsBean bean, String musicTitle) {
-        if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
-            clearCurrentLyrics();
-            Toast.makeText(getApplicationContext(), "No synced lyrics: " + musicTitle, LENGTH_SHORT).show();
-            return;
-        }
-        String syncedLyrics = bean.getSyncedLyrics();
-        double duration = bean.getDuration();
-        boolean saved = lyricsDatabaseHelper.saveLyrics(
-                ArtistName,
-                musicTitle,
-                syncedLyrics,
-                duration
-        );
-        if (saved) {
-//            Log.d("LYRICS_CACHE", "Lyrics saved to SQLite: " + musicTitle);
-        }
-        PlayerState s = PlayerState.get();
-        s.parsedLyrics = LrcParser.parse(syncedLyrics);
-        s.lyricsDurationSec = (float) duration;
-        super.onTrackChanged();
-    }
-
-    private void clearCurrentLyrics() {
-        PlayerState state = PlayerState.get();
-        state.parsedLyrics = new ArrayList<>();
-        state.lyricsDurationSec = 0f;
-        if (karaokeLyricsController != null) {
-            karaokeLyricsController.clear();
-        }
-        mini.tvMiniLyrics.setVisibility(View.GONE);
-    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -990,13 +851,11 @@ public class TrackInfoActivity extends MiniPlayerActivity
         if(hud !=null){
             hud.dismiss();
         }
-        checkCurrentTrackLyrics();
         updateAdapterTrackState();
     }
 
     @Override
-    public void onTrackChanged() {
-        checkCurrentTrackLyrics();
+    public void onTrackChanged() {;
         updateAdapterTrackState();
     }
     private void syncIndexFromPlayerState() {

@@ -71,6 +71,9 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
     private MusicListPresenter queuePresenter;
     private PlayerState.Item pendingSearchItem;
 
+    // Detects when PlayerState.parsedLyrics is replaced (lyrics finished loading)
+    private Object lastLyricsRef = null;
+
     private final Handler miniProgressHandler = new Handler(Looper.getMainLooper());
     private String lastMiniTrackKey = "";
     private final Runnable miniProgressRunnable = new Runnable() {
@@ -91,6 +94,12 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 if (!TextUtils.equals(lastMiniTrackKey, trackKey)) {
                     lastMiniTrackKey = trackKey;
                     syncMiniPlayerInfo();
+                    onTrackChanged();
+                    applyLyricsOffset();
+                }
+
+                if (s.parsedLyrics != lastLyricsRef) {
+                    lastLyricsRef = s.parsedLyrics;
                     onTrackChanged();
                     applyLyricsOffset();
                 }
@@ -173,7 +182,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         return getClass().getName();
     }
 
-    // Updated hook to manage lyrics visibility and lines
+    // Hook to manage lyrics visibility and lines
     public void onTrackChanged() {
         PlayerState s = PlayerState.get();
         if (mini != null && mini.tvMiniLyrics != null) {
@@ -188,6 +197,23 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                     karaokeLyricsController.clear();
                 }
             }
+        }
+    }
+
+    /**
+     * Call this from whatever loads lyrics (optional, avoids waiting for the 500ms poll).
+     * Set s.lyricsDurationSec BEFORE s.parsedLyrics, then call this on the UI thread.
+     */
+    public static void notifyLyricsLoaded() {
+        MiniPlayerActivity owner = playbackOwner.get();
+        MiniPlayerActivity last = lastActive.get();
+        if (owner != null && !owner.isDestroyed()) {
+            owner.onTrackChanged();
+            owner.applyLyricsOffset();
+        }
+        if (last != null && last != owner && !last.isDestroyed()) {
+            last.onTrackChanged();
+            last.applyLyricsOffset();
         }
     }
 
@@ -379,19 +405,13 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             mini.tvMiniLyrics.setVisibility(visible ? View.GONE : View.VISIBLE);
             return true;
         });
-        
-        
-        mini.ivMiniPrevious.setOnClickListener(v -> {
-            onPreviousTrackRequested();
-        });
 
-        mini.ivMiniPlayPause.setOnClickListener(v -> {
-            togglePlayPause();
-        });
+        mini.ivMiniPrevious.setOnClickListener(v -> onPreviousTrackRequested());
 
-        mini.ivMiniNext.setOnClickListener(v -> {
-            onNextTrackRequested();
-        });
+        mini.ivMiniPlayPause.setOnClickListener(v -> togglePlayPause());
+
+        mini.ivMiniNext.setOnClickListener(v -> onNextTrackRequested());
+
         miniYouTubePlayerView.initialize(new AbstractYouTubePlayerListener() {
             @Override
             public void onReady(@NonNull YouTubePlayer youTubePlayer) {
@@ -425,6 +445,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
                 sendStateToService(isPlaying);
             }
+
             @Override
             public void onVideoDuration(@NonNull YouTubePlayer youTubePlayer, float duration) {
                 if (isLocalPlayback || playbackOwner.get() != MiniPlayerActivity.this) return;
@@ -433,7 +454,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 sendStateToService(isPlaying);
                 applyLyricsOffset();
                 onTrackChanged();
-
             }
 
             @Override
@@ -457,7 +477,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                 }
             }
         }, options);
-
 
         attachLocalPlayerListener();
     }
@@ -551,6 +570,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         currentPlayingThumb = thumbUrl;
 
         PlayerState s = PlayerState.get();
+
+        // MUST be computed BEFORE the state below is overwritten
+        boolean sameTrack = s.hasTrack && !s.isLocal
+                && videoId != null && videoId.equals(s.videoId);
+
         s.hasTrack = true;
         s.isLocal = false;
         s.videoId = videoId;
@@ -559,6 +583,16 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         s.artist = artist == null ? "" : artist;
         s.thumb = thumbUrl == null ? "" : thumbUrl;
         s.positionSec = startSec;
+
+        if (!sameTrack) {
+            s.parsedLyrics = null;
+            s.lyricsDurationSec = 0f;
+            s.lyricsOffsetMs = 0;
+            s.durationSec = 0f;
+            if (karaokeLyricsController != null) karaokeLyricsController.clear();
+            if (mini.tvMiniLyrics != null) mini.tvMiniLyrics.setVisibility(View.GONE);
+        }
+
         mini.rlMiniPlayer.setVisibility(View.VISIBLE);
         mini.tvMiniTitle.setText(title);
         mini.tvMiniArtist.setText(TextUtils.isEmpty(artist) ? "Music" : artist);
@@ -593,6 +627,11 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         currentPlayingThumb = "";
 
         PlayerState s = PlayerState.get();
+
+        // MUST be computed BEFORE the state below is overwritten
+        boolean sameTrack = s.hasTrack && s.isLocal
+                && file.getAbsolutePath().equals(s.localPath);
+
         s.hasTrack = true;
         s.isLocal = true;
         s.localPath = file.getAbsolutePath();
@@ -604,13 +643,20 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         s.durationSec = 0f;
         s.isPlaying = false;
 
+        if (!sameTrack) {
+            s.parsedLyrics = null;
+            s.lyricsDurationSec = 0f;
+            s.lyricsOffsetMs = 0;
+            if (karaokeLyricsController != null) karaokeLyricsController.clear();
+            if (mini.tvMiniLyrics != null) mini.tvMiniLyrics.setVisibility(View.GONE);
+        }
+
         if (miniPlayer != null) {
             miniPlayer.pause();
         }
 
         registerControlReceiver();
         attachLocalPlayerListener();
-
 
         mini.miniYoutubePlayerView.setVisibility(View.GONE);
         mini.ivMiniCover.setVisibility(View.VISIBLE);
@@ -656,6 +702,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
             queuePresenter.getSearchListQuery((it.name + " " + it.artist).trim() + " official audio");
         }
     }
+
     /**
      * Pause whichever source is active.
      */
@@ -751,7 +798,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
                     .setTint(NowPlayingDialog.colorFor(s.title));
         }
 
-        if (mini != null && mini.tvMiniLyrics != null) {
+        if (mini.tvMiniLyrics != null) {
             if (s.parsedLyrics != null && !s.parsedLyrics.isEmpty()) {
                 mini.tvMiniLyrics.setVisibility(View.VISIBLE);
                 if (karaokeLyricsController != null) {
@@ -895,6 +942,7 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
 
         playSharedQueueAt(s.queueIndex - 1);
     }
+
     protected void applyLyricsOffset() {
         if (karaokeLyricsController == null) return;
         PlayerState s = PlayerState.get();
@@ -909,7 +957,6 @@ public abstract class MiniPlayerActivity extends AppCompatActivity {
         karaokeLyricsController.setOffsetMs(offsetMs);
         s.lyricsOffsetMs = offsetMs;
     }
-
 
     private MiniPlayerActivity target() {
         MiniPlayerActivity o = playbackOwner.get();
