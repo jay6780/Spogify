@@ -12,9 +12,9 @@ import io.reactivex.rxjava3.disposables.Disposable;
 import io.reactivex.rxjava3.schedulers.Schedulers;
 
 public class LyricsModel {
-    public static void getLyricsQuery(String track_name,String artist_name, final Callback<LyricsBean> callback) {
+    public static void getLyricsQuery(String track_name,String artist_name,int duration, final Callback<LyricsBean> callback) {
         NetworkingUtils.getLyrics()
-                .getLyrics(track_name,artist_name)
+                .getLyrics(track_name,artist_name,duration)
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribeOn(Schedulers.io())
                 .subscribe(new Observer<LyricsBean>() {

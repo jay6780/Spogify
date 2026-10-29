@@ -14,6 +14,6 @@ public interface LyricsContract {
     }
 
     interface Presenter {
-        void getLyrics(String track_name,String artist_name);
+        void getLyrics(String track_name,String artist_name,int duration);
     }
 }

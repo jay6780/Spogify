@@ -233,40 +233,9 @@ public class MainActivity extends MiniPlayerActivity implements View.OnClickList
                 super.onTrackChanged();
                 return;
             }
-        }
-        clearCurrentLyrics();
-    }
-
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    public void onLyricsEvent(LyricsEvent event) {
-        if (event != null) {
-            applyLyrics(event.getBean(), event.getMusicTitle());
-        }
-    }
-    private void applyLyrics(LyricsBean bean, String musicTitle) {
-        if (bean == null || TextUtils.isEmpty(bean.getSyncedLyrics())) {
             clearCurrentLyrics();
-            return;
-        }
-        String syncedLyrics = bean.getSyncedLyrics();
-        double duration = bean.getDuration();
-
-        if (lyricsDatabaseHelper != null) {
-            lyricsDatabaseHelper.saveLyrics(
-                    bean.getArtistName(),
-                    musicTitle,
-                    syncedLyrics,
-                    duration
-            );
         }
 
-        PlayerState s = PlayerState.get();
-        s.parsedLyrics = LrcParser.parse(syncedLyrics);
-        s.setLyrics(syncedLyrics);
-        s.setDuration(duration);
-        s.lyricsDurationSec = (float) duration;
-
-        super.onTrackChanged();
     }
 
     @Override

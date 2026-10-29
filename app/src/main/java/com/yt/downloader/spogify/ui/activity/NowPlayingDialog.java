@@ -242,12 +242,12 @@ public class NowPlayingDialog extends DialogFragment implements LyricsContract.V
 
         if (isNetworkAvailable() && lyricsPresenter != null) {
             showLoading();
-            lyricsPresenter.getLyrics(musicTitle, artist);
+            int durationInt = (int) s.durationSec;
+            lyricsPresenter.getLyrics(musicTitle, artist, durationInt);
         } else {
             hideLoading();
         }
     }
-
     private String cleanMusicTitle(String title) {
         if (TextUtils.isEmpty(title)) return "";
         String clean = title.trim();

@@ -22,10 +22,10 @@ public class LyricsPresenter implements LyricsContract.Presenter {
 
 
     @Override
-    public void getLyrics(String track_name,String artist_name) {
+    public void getLyrics(String track_name,String artist_name,int duration) {
         view.showLoading();
 
-        LyricsModel.getLyricsQuery(track_name,artist_name, new Callback<LyricsBean>() {
+        LyricsModel.getLyricsQuery(track_name,artist_name,duration, new Callback<LyricsBean>() {
             @Override
             public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
             }
